@@ -27,6 +27,8 @@ import org.bouncycastle.openssl.PEMKeyPair;
 import org.bouncycastle.openssl.PEMParser;
 import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
 import org.bouncycastle.openssl.jcajce.JcePEMDecryptorProviderBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import udmi.schema.EndpointConfiguration.Transport;
 
 /**
@@ -44,6 +46,7 @@ public class CertManager {
   private static final String CA_CERT_ALIAS = "ca-certificate";
   private static final String CLIENT_CERT_ALIAS = "certificate";
   private static final String PRIVATE_KEY_ALIAS = "private-key";
+  private static final Logger log = LoggerFactory.getLogger(CertManager.class);
   private final File caCrtFile;
   private final File keyFile;
   private final File crtFile;
@@ -146,6 +149,10 @@ public class CertManager {
     try {
       if (!isSsl) {
         return SocketFactory.getDefault();
+      }
+      // Workaround for no certificate
+      if(crtFile == null || keyFile == null) {
+        return SSLSocketFactory.getDefault();
       }
       return getCertSocketFactory();
     } catch (Exception e) {
