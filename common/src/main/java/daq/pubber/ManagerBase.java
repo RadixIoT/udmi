@@ -13,6 +13,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import udmi.schema.PointsetConfig;
 import udmi.schema.PubberConfiguration;
 import udmi.schema.PubberOptions;
 
@@ -143,12 +144,19 @@ public abstract class ManagerBase {
     }
   }
 
-  protected void stop() {
+  public void stop() {
     cancelPeriodicSend();
   }
 
-  protected void shutdown() {
+  public void shutdown() {
     cancelPeriodicSend();
     stopExecutor();
+  }
+
+  public abstract <T> void updateConfig(T config);
+  public abstract <T> void updateConfig(T config, Date timestamp);
+
+  public String getDeviceId() {
+    return deviceId;
   }
 }
