@@ -4,8 +4,7 @@ import static com.google.udmi.util.GeneralUtils.deepCopy;
 import static com.google.udmi.util.GeneralUtils.friendlyStackTrace;
 import static java.lang.String.format;
 
-import daq.pubber.client.AbstractDeviceManager;
-import daq.pubber.client.AbstractProxyDevice;
+import daq.pubber.client.DeviceClient;
 import java.util.concurrent.atomic.AtomicBoolean;
 import udmi.schema.Config;
 import udmi.schema.Metadata;
@@ -14,7 +13,7 @@ import udmi.schema.PubberConfiguration;
 /**
  * Wrapper for a complete device construct.
  */
-public class ProxyDevice extends AbstractProxyDevice {
+public class ProxyDevice extends ManagerBase implements ManagerHost {
 
   final DeviceManager deviceManager;
   final Pubber pubberHost;
@@ -24,7 +23,7 @@ public class ProxyDevice extends AbstractProxyDevice {
    * New instance.
    */
   public ProxyDevice(ManagerHost host, String id, PubberConfiguration config) {
-    super(host, id, config);
+    super(host, makeProxyConfiguration(id, config));
     // Simple shortcut to get access to some foundational mechanisms inside of Pubber.
     pubberHost = (Pubber) host;
     deviceManager = new DeviceManager(this, makeProxyConfiguration(id, config));
@@ -36,26 +35,24 @@ public class ProxyDevice extends AbstractProxyDevice {
     return proxyConfiguration;
   }
 
-  @Override
-  public void activate() {
+  protected void activate() {
     try {
       active.set(false);
-      MqttDevice mqttDevice = pubberHost.getMqttDevice(getDeviceId());
+      MqttDevice mqttDevice = pubberHost.getMqttDevice(deviceId);
       mqttDevice.registerHandler(MqttDevice.CONFIG_TOPIC, this::configHandler, Config.class);
-      mqttDevice.connect(getDeviceId());
+      mqttDevice.connect(deviceId);
       deviceManager.activate();
       active.set(true);
-      info("Activated proxy device " + getDeviceId());
+      info("Activated proxy device " + deviceId);
     } catch (Exception e) {
-      error(format("Could not connect proxy device %s: %s", getDeviceId(), friendlyStackTrace(e)));
+      error(format("Could not connect proxy device %s: %s", deviceId, friendlyStackTrace(e)));
     }
   }
 
-  @Override
-  public void configHandler(Config config) {
-    pubberHost.configPreprocess(getDeviceId(), config);
+  void configHandler(Config config) {
+    pubberHost.configPreprocess(deviceId, config);
     deviceManager.updateConfig(config);
-    pubberHost.publisherConfigLog("apply", null, getDeviceId());
+    pubberHost.publisherConfigLog("apply", null, deviceId);
   }
 
   @Override
@@ -71,17 +68,26 @@ public class ProxyDevice extends AbstractProxyDevice {
   @Override
   public void publish(Object message) {
     if (active.get()) {
-      pubberHost.publish(getDeviceId(), message);
+      pubberHost.publish(deviceId, message);
     }
   }
 
   @Override
+  public void update(Object update) {
+    String simpleName = update.getClass().getSimpleName();
+    warn(format("Ignoring proxy device %s update for %s", deviceId, simpleName));
+  }
+
+  @Override
+  public FamilyProvider getLocalnetProvider(String family) {
+    return host.getLocalnetProvider(family);
+  }
+
   public void setMetadata(Metadata metadata) {
     deviceManager.setMetadata(metadata);
   }
 
-  @Override
-  public AbstractDeviceManager getDeviceManager() {
+  public DeviceClient getDeviceManager() {
     return deviceManager;
   }
 }

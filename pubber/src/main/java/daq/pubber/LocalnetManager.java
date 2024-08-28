@@ -5,12 +5,10 @@ import static java.util.stream.Collectors.toMap;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.udmi.util.SiteModel;
-import daq.pubber.client.AbstractDeviceManager;
-import daq.pubber.client.AbstractLocalnetManager;
+import daq.pubber.client.LocalnetClient;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
-import udmi.schema.FamilyDiscovery;
 import udmi.schema.FamilyLocalnetState;
 import udmi.schema.LocalnetConfig;
 import udmi.schema.LocalnetState;
@@ -19,10 +17,10 @@ import udmi.schema.PubberConfiguration;
 /**
  * Container class for dealing with the localnet subblock of UDMI.
  */
-public class LocalnetManager extends ManagerBase implements AbstractLocalnetManager, ManagerHost {
+public class LocalnetManager extends ManagerBase implements LocalnetClient, ManagerHost {
 
   private static final Map<String, Class<? extends FamilyProvider>> LOCALNET_PROVIDERS =
-      ImmutableMap.of(
+      Map.of(
           ProtocolFamily.VENDOR, VendorProvider.class,
           ProtocolFamily.IPV_4, IpProvider.class,
           ProtocolFamily.IPV_6, IpProvider.class,

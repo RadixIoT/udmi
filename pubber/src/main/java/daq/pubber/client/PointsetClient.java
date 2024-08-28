@@ -14,11 +14,17 @@ import udmi.schema.PointsetEvents;
 import udmi.schema.PointsetModel;
 import udmi.schema.PointsetState;
 
-public interface AbstractPointsetManager  {
+/**
+ * Pointset client.
+ */
+public interface PointsetClient {
 
   ExtraPointsetEvent getPointsetEvent();
+
   Map<String, AbstractPoint> getManagedPoints();
+
   int getPointsetUpdateCount();
+
   PointsetState getPointsetState();
 
   default void setPointsetModel(PointsetModel pointset) {
@@ -48,6 +54,12 @@ public interface AbstractPointsetManager  {
 
   void updateState(AbstractPoint point);
 
+  /**
+   * marks point as invalid.
+   *
+   * @param pointName point name.
+   * @return PointPointsetState.
+   */
   default PointPointsetState invalidPoint(String pointName) {
     PointPointsetState pointPointsetState = new PointPointsetState();
     pointPointsetState.status = new Entry();
@@ -67,6 +79,9 @@ public interface AbstractPointsetManager  {
 
   void shutdown();
 
+  /**
+   * PointsetEvents with extraField.
+   */
   class ExtraPointsetEvent extends PointsetEvents {
 
     // This extraField exists only to trigger schema parsing errors.
