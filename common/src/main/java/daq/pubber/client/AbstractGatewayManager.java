@@ -8,7 +8,6 @@ import static java.util.Optional.ofNullable;
 
 import daq.pubber.ManagerBase;
 import daq.pubber.ManagerHost;
-import daq.pubber.AbstractProxyDevice;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
