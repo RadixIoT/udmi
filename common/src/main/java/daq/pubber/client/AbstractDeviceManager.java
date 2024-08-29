@@ -36,6 +36,8 @@ public abstract class AbstractDeviceManager extends ManagerBase {
     this.discoveryManager = discoveryManager;
   }
 
+  public abstract AbstractDeviceManager buildDeviceManager();
+
   public AbstractPointsetManager getPointsetManager() {
     return pointsetManager;
   }
