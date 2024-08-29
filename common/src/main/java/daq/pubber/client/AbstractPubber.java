@@ -7,12 +7,15 @@ import daq.pubber.ManagerBase;
 import daq.pubber.ManagerHost;
 import daq.pubber.MqttDevice;
 import java.util.Date;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import udmi.schema.Config;
 import udmi.schema.PubberConfiguration;
 
 public class AbstractPubber extends ManagerBase implements ManagerHost {
 
   public static final int MESSAGE_REPORT_INTERVAL = 10;
+  static final Logger LOG = LoggerFactory.getLogger(AbstractPubber.class);
 
   /**
    * New instance.
