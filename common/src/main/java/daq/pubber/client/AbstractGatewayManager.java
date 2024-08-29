@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Objects;
 import udmi.schema.Config;
 import udmi.schema.Entry;
+import udmi.schema.GatewayConfig;
 import udmi.schema.GatewayState;
 import udmi.schema.Level;
 import udmi.schema.Metadata;
@@ -99,4 +100,6 @@ public abstract class AbstractGatewayManager extends ManagerBase {
     config.pointset.points.put(EXTRA_PROXY_POINT, pointPointsetConfig);
     proxyDevices.get(EXTRA_PROXY_DEVICE).configHandler(config);
   }
+
+  public abstract void updateConfig(GatewayConfig gateway);
 }
