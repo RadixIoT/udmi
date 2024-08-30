@@ -17,6 +17,8 @@ import static java.util.Optional.ofNullable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.udmi.util.CleanDateFormat;
+import daq.pubber.client.AbstractSystemManager;
+import daq.pubber.client.AbstractSystemManager.ExtraSystemState;
 import java.io.File;
 import java.io.PrintStream;
 import java.time.Instant;
@@ -44,7 +46,7 @@ import udmi.schema.SystemState;
 /**
  * Support manager for system stuff.
  */
-public class SystemManager extends ManagerBase {
+public class SystemManager extends AbstractSystemManager {
 
   public static final String PUBBER_LOG_CATEGORY = "device.log";
   public static final String PUBBER_LOG = "pubber.log";
@@ -129,7 +131,7 @@ public class SystemManager extends ManagerBase {
     }
   }
 
-  private void setHardwareSoftware(Metadata metadata) {
+  protected void setHardwareSoftware(Metadata metadata) {
 
     systemState.hardware.make = catchOrElse(
         () -> metadata.system.hardware.make, () -> DEFAULT_MAKE);
@@ -150,13 +152,20 @@ public class SystemManager extends ManagerBase {
     }
   }
 
-  private SystemEvents getSystemEvent() {
+  @Override
+  protected AbstractSystemManager.ExtraSystemState getSystemState() {
+    return this.systemState;
+  }
+
+  protected SystemEvents getSystemEvent() {
     SystemEvents systemEvent = new SystemEvents();
     systemEvent.last_config = systemState.last_config;
     return systemEvent;
   }
 
-  void maybeRestartSystem() {
+
+  @Override
+  public void maybeRestartSystem() {
     SystemConfig system = ofNullable(systemConfig).orElseGet(SystemConfig::new);
     Operation operation = ofNullable(system.operation).orElseGet(Operation::new);
     SystemMode configMode = operation.mode;
@@ -188,6 +197,11 @@ public class SystemManager extends ManagerBase {
     }
   }
 
+  @Override
+  protected Date getDeviceStartTime() {
+    return DEVICE_START_TIME;
+  }
+
   private void updateState() {
     host.update(systemState);
   }
@@ -210,7 +224,8 @@ public class SystemManager extends ManagerBase {
     sendSystemEvent();
   }
 
-  void systemLifecycle(SystemMode mode) {
+  @Override
+  public void systemLifecycle(SystemMode mode) {
     systemState.operation.mode = mode;
     try {
       host.update(host);
@@ -222,15 +237,18 @@ public class SystemManager extends ManagerBase {
     System.exit(exitCode);
   }
 
+  @Override
   public void setMetadata(Metadata metadata) {
     setHardwareSoftware(metadata);
   }
 
+  @Override
   public void setPersistentData(DevicePersistent persistentData) {
     systemState.operation.restart_count = persistentData.restart_count;
   }
 
-  void updateConfig(SystemConfig system, Date timestamp) {
+  @Override
+  public void updateConfig(SystemConfig system, Date timestamp) {
     Integer oldBase = catchToNull(() -> systemConfig.testing.config_base);
     Integer newBase = catchToNull(() -> system.testing.config_base);
     if (oldBase != null && oldBase.equals(newBase)
@@ -244,7 +262,8 @@ public class SystemManager extends ManagerBase {
     updateState();
   }
 
-  void publishLogMessage(Entry report) {
+  @Override
+  public void publishLogMessage(Entry report) {
     if (shouldLogLevel(report.level)) {
       logentries.add(report);
     }
@@ -259,7 +278,8 @@ public class SystemManager extends ManagerBase {
     return level >= requireNonNullElse(minLoglevel, Level.INFO.value());
   }
 
-  void cloudLog(String message, Level level, String detail) {
+  @Override
+  public void cloudLog(String message, Level level, String detail) {
     String timestamp = getTimestamp();
     localLog(message, level, timestamp, detail);
 
@@ -277,21 +297,24 @@ public class SystemManager extends ManagerBase {
     }
   }
 
-  String getTestingTag() {
+  @Override
+  public String getTestingTag() {
     SystemConfig config = systemConfig;
     return config == null || config.testing == null
         || config.testing.sequence_name == null ? ""
         : format(" (%s)", config.testing.sequence_name);
   }
 
-  void localLog(Entry entry) {
+  @Override
+  public void localLog(Entry entry) {
     String message = format("Log %s%s %s %s %s%s", Level.fromValue(entry.level).name(),
         shouldLogLevel(entry.level) ? "" : "*",
         entry.category, entry.message, isoConvert(entry.timestamp), getTestingTag());
     localLog(message, Level.fromValue(entry.level), isoConvert(entry.timestamp), null);
   }
 
-  void localLog(String message, Level level, String timestamp, String detail) {
+  @Override
+  public void localLog(String message, Level level, String timestamp, String detail) {
     String detailPostfix = detail == null ? "" : ":\n" + detail;
     String logMessage = format("%s %s%s", timestamp, message, detailPostfix);
     LOG_MAP.get(level).accept(logMessage);
@@ -324,8 +347,4 @@ public class SystemManager extends ManagerBase {
     publishLogMessage(logEntry);
   }
 
-  class ExtraSystemState extends SystemState {
-
-    public String extraField;
-  }
 }

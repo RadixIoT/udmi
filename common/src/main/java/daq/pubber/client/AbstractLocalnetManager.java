@@ -3,6 +3,7 @@ package daq.pubber.client;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static java.util.stream.Collectors.toMap;
 
+import com.google.udmi.util.SiteModel;
 import daq.pubber.FamilyProvider;
 import daq.pubber.ManagerBase;
 import daq.pubber.ManagerHost;
@@ -26,7 +27,7 @@ public abstract class AbstractLocalnetManager extends ManagerBase implements Man
     super(host, configuration);
   }
 
-  protected Map<String, FamilyDiscovery> enumerateFamilies() {
+  public Map<String, FamilyDiscovery> enumerateFamilies() {
     return getLocalnetState().families.keySet().stream()
         .collect(toMap(key -> key, this::makeFamilyDiscovery));
   }
@@ -60,7 +61,7 @@ public abstract class AbstractLocalnetManager extends ManagerBase implements Man
 
   public abstract FamilyProvider getLocalnetProvider(String family);
 
-  public abstract void populateInterfaceAddresses();
-
   public abstract LocalnetState getLocalnetState();
+
+  public abstract void setSiteModel(SiteModel siteModel);
 }

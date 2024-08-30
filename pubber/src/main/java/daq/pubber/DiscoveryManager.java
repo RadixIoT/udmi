@@ -20,6 +20,7 @@ import static udmi.schema.FamilyDiscoveryState.Phase.STOPPED;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.udmi.util.SiteModel;
+import daq.pubber.client.AbstractDiscoveryManager;
 import java.time.Instant;
 import java.util.Date;
 import java.util.HashMap;
@@ -46,7 +47,7 @@ import udmi.schema.SystemDiscoveryData;
 /**
  * Manager wrapper for discovery functionality in pubber.
  */
-public class DiscoveryManager extends ManagerBase {
+public class DiscoveryManager extends AbstractDiscoveryManager {
 
   public static final int SCAN_DURATION_SEC = 10;
 
@@ -83,7 +84,7 @@ public class DiscoveryManager extends ManagerBase {
     DiscoveryEvents discoveryEvent = new DiscoveryEvents();
     discoveryEvent.generation = enumerationGeneration;
     Depths depths = config.depths;
-    discoveryEvent.points = maybeEnumerate(depths.points, () -> enumeratePoints(deviceId));
+    discoveryEvent.points = maybeEnumerate(depths.points, () -> enumeratePoints(getDeviceId()));
     discoveryEvent.features = maybeEnumerate(depths.features, SupportedFeatures::getFeatures);
     discoveryEvent.families = maybeEnumerate(depths.families, deviceManager::enumerateFamilies);
     host.publish(discoveryEvent);

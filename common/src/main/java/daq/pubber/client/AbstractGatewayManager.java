@@ -6,6 +6,7 @@ import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
 
+import com.google.udmi.util.SiteModel;
 import daq.pubber.ManagerBase;
 import daq.pubber.ManagerHost;
 import java.util.HashMap;
@@ -101,4 +102,8 @@ public abstract class AbstractGatewayManager extends ManagerBase {
   }
 
   public abstract void updateConfig(GatewayConfig gateway);
+
+  public void setSiteModel(SiteModel siteModel) {
+
+  }
 }

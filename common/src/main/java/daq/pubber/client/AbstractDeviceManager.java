@@ -12,11 +12,11 @@ import udmi.schema.PubberConfiguration;
 
 public abstract class AbstractDeviceManager extends ManagerBase {
 
-  private final AbstractPointsetManager pointsetManager;
-  private final AbstractSystemManager systemManager;
-  private final AbstractLocalnetManager localnetManager;
-  private final AbstractGatewayManager gatewayManager;
-  private final AbstractDiscoveryManager discoveryManager;
+  private AbstractPointsetManager pointsetManager;
+  private AbstractSystemManager systemManager;
+  private AbstractLocalnetManager localnetManager;
+  private AbstractGatewayManager gatewayManager;
+  private AbstractDiscoveryManager discoveryManager;
 
   /**
    * New instance.
@@ -24,7 +24,7 @@ public abstract class AbstractDeviceManager extends ManagerBase {
    * @param host
    * @param configuration
    */
-  public AbstractDeviceManager(ManagerHost host, PubberConfiguration configuration,
+  protected AbstractDeviceManager(ManagerHost host, PubberConfiguration configuration,
       AbstractPointsetManager pointsetManager, AbstractSystemManager systemManager,
       AbstractLocalnetManager localnetManager, AbstractGatewayManager gatewayManager,
       AbstractDiscoveryManager discoveryManager) {
@@ -36,7 +36,10 @@ public abstract class AbstractDeviceManager extends ManagerBase {
     this.discoveryManager = discoveryManager;
   }
 
-  public abstract AbstractDeviceManager buildDeviceManager();
+  protected AbstractDeviceManager(ManagerHost host, PubberConfiguration configuration) {
+    super(host, configuration);
+  }
+
 
   public AbstractPointsetManager getPointsetManager() {
     return pointsetManager;
@@ -144,4 +147,5 @@ public abstract class AbstractDeviceManager extends ManagerBase {
   public void cloudLog(String message, Level level, String detail) {
     systemManager.cloudLog(message, level, detail);
   }
+
 }

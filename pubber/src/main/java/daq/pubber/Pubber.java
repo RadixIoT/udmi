@@ -53,7 +53,7 @@ import daq.pubber.MqttPublisher.InjectedState;
 import daq.pubber.MqttPublisher.PublisherException;
 import daq.pubber.PointsetManager.ExtraPointsetEvent;
 import daq.pubber.PubSubClient.Bundle;
-import daq.pubber.SystemManager.ExtraSystemState;
+import daq.pubber.client.AbstractSystemManager.ExtraSystemState;
 import java.io.File;
 import java.io.PrintStream;
 import java.lang.reflect.Field;

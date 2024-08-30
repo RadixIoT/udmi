@@ -55,12 +55,12 @@ public class ProxyDevice extends ManagerBase implements ManagerHost {
   }
 
   @Override
-  protected void shutdown() {
+  public void shutdown() {
     deviceManager.shutdown();
   }
 
   @Override
-  protected void stop() {
+  public void stop() {
     deviceManager.stop();
   }
 

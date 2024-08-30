@@ -118,7 +118,7 @@ public abstract class AbstractPointsetManager extends ManagerBase {
   }
 
 
-  protected void updateConfig(PointsetConfig config) {
+  public void updateConfig(PointsetConfig config) {
     Integer rate = ifNotNullGet(config, c -> c.sample_rate_sec);
     Integer limit = ifNotNullGet(config, c -> c.sample_limit_sec);
     Integer max = Stream.of(rate, limit).filter(Objects::nonNull).reduce(Math::max).orElse(null);

@@ -27,15 +27,6 @@ public class AbstractPubber extends ManagerBase implements ManagerHost {
     super(host, configuration);
   }
 
-  @Override
-  public <T> void updateConfig(T config) {
-    throw new UnsupportedOperationException("Not supported yet.");
-  }
-
-  @Override
-  public <T> void updateConfig(T config, Date timestamp) {
-    throw new UnsupportedOperationException("Not supported yet.");
-  }
 
   @Override
   public void update(Object update) {

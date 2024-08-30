@@ -12,6 +12,7 @@ import static java.util.Optional.ofNullable;
 import static udmi.schema.Category.GATEWAY_PROXY_TARGET;
 
 import com.google.udmi.util.SiteModel;
+import daq.pubber.client.AbstractGatewayManager;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,7 +30,7 @@ import udmi.schema.PubberConfiguration;
 /**
  * Manager for UDMI gateway functionality.
  */
-public class GatewayManager extends ManagerBase {
+public class GatewayManager extends AbstractGatewayManager {
 
   private static final String EXTRA_PROXY_DEVICE = "XXX-1";
   private static final String EXTRA_PROXY_POINT = "xxx_conflagration";
@@ -113,7 +114,7 @@ public class GatewayManager extends ManagerBase {
     updateState();
   }
 
-  private void setGatewayStatus(String category, Level level, String message) {
+  protected void setGatewayStatus(String category, Level level, String message) {
     // TODO: Implement a map or tree or something to properly handle different error sources.
     gatewayState.status = new Entry();
     gatewayState.status.category = category;
@@ -121,11 +122,11 @@ public class GatewayManager extends ManagerBase {
     gatewayState.status.message = message;
   }
 
-  private void updateState() {
+  protected void updateState() {
     updateState(ofNullable((Object) gatewayState).orElse(GatewayState.class));
   }
 
-  private String validateGatewayFamily(String family) {
+  protected String validateGatewayFamily(String family) {
     if (family == null) {
       return null;
     }
@@ -135,7 +136,7 @@ public class GatewayManager extends ManagerBase {
     return family;
   }
 
-  private void configExtraDevice() {
+  protected void configExtraDevice() {
     Config config = new Config();
     config.pointset = new PointsetConfig();
     config.pointset.points = new HashMap<>();

@@ -52,7 +52,6 @@ public abstract class AbstractSystemManager extends ManagerBase {
               SystemMode.RESTART, 192, // Indicate process to be explicitly restarted.protected int systemEventCount;
               SystemMode.TERMINATE, 193); // Indicates expected shutdown (failure code).protected SystemConfig systemConfig;
   private final List<Entry> logentries = new ArrayList<>();
-  protected static final Integer UNKNOWN_MODE_EXIT_CODE = -1;
   protected boolean publishingLog;
   private int systemEventCount;
   private SystemConfig systemConfig;
@@ -108,7 +107,7 @@ public abstract class AbstractSystemManager extends ManagerBase {
     return systemEvent;
   }
 
-  void maybeRestartSystem() {
+  public void maybeRestartSystem() {
     SystemConfig system = ofNullable(systemConfig).orElseGet(SystemConfig::new);
     Operation operation = ofNullable(system.operation).orElseGet(Operation::new);
     SystemMode configMode = operation.mode;
@@ -174,7 +173,7 @@ public abstract class AbstractSystemManager extends ManagerBase {
     getSystemState().operation.restart_count = persistentData.restart_count;
   }
 
-  void updateConfig(SystemConfig system, Date timestamp) {
+  public void updateConfig(SystemConfig system, Date timestamp) {
     Integer oldBase = catchToNull(() -> systemConfig.testing.config_base);
     Integer newBase = catchToNull(() -> system.testing.config_base);
     if (oldBase != null && oldBase.equals(newBase)
@@ -188,7 +187,7 @@ public abstract class AbstractSystemManager extends ManagerBase {
     updateState();
   }
 
-  void publishLogMessage(Entry report) {
+  public void publishLogMessage(Entry report) {
     if (shouldLogLevel(report.level)) {
       logentries.add(report);
     }
@@ -203,7 +202,7 @@ public abstract class AbstractSystemManager extends ManagerBase {
     return level >= requireNonNullElse(minLoglevel, Level.INFO.value());
   }
 
-  void cloudLog(String message, Level level, String detail) {
+  public void cloudLog(String message, Level level, String detail) {
     String timestamp = getTimestamp();
     localLog(message, level, timestamp, detail);
 
@@ -221,14 +220,14 @@ public abstract class AbstractSystemManager extends ManagerBase {
     }
   }
 
-  String getTestingTag() {
+  public String getTestingTag() {
     SystemConfig config = systemConfig;
     return config == null || config.testing == null
         || config.testing.sequence_name == null ? ""
         : format(" (%s)", config.testing.sequence_name);
   }
 
-  void localLog(Entry entry) {
+  public void localLog(Entry entry) {
     String message = format("Log %s%s %s %s %s%s", Level.fromValue(entry.level).name(),
         shouldLogLevel(entry.level) ? "" : "*",
         entry.category, entry.message, isoConvert(entry.timestamp), getTestingTag());
@@ -253,9 +252,4 @@ public abstract class AbstractSystemManager extends ManagerBase {
     public String extraField;
   }
 
-  protected abstract void initializeLogger();
-
-  protected abstract void systemLifecycle();
-
-  protected abstract void localLog();
 }
