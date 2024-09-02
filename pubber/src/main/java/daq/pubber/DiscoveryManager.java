@@ -69,7 +69,7 @@ public class DiscoveryManager extends AbstractDiscoveryManager {
     });
   }
 
-  private void updateDiscoveryEnumeration(DiscoveryConfig config) {
+  protected void updateDiscoveryEnumeration(DiscoveryConfig config) {
     Date enumerationGeneration = config.generation;
     if (enumerationGeneration == null) {
       discoveryState.generation = null;
@@ -184,7 +184,7 @@ public class DiscoveryManager extends AbstractDiscoveryManager {
     }
   }
 
-  private void startDiscoveryScan(String family, Date scanGeneration) {
+  protected void startDiscoveryScan(String family, Date scanGeneration) {
     info("Discovery scan starting " + family + " as " + isoConvert(scanGeneration));
     Date stopTime = Date.from(scanGeneration.toInstant().plusSeconds(SCAN_DURATION_SEC));
     final FamilyDiscoveryState familyDiscoveryState = ensureFamilyDiscoveryState(family);
@@ -252,6 +252,11 @@ public class DiscoveryManager extends AbstractDiscoveryManager {
         catchToNull(() -> getFamilyDiscoveryConfig(family).scan_interval_sec)).orElse(0);
   }
 
+  @Override
+  protected Date getDeviceStartTime() {
+    return DEVICE_START_TIME;
+  }
+
   private <T> T ifTrue(Boolean condition, Supplier<T> supplier) {
     return isGetTrue(() -> condition) ? supplier.get() : null;
   }
@@ -300,5 +305,25 @@ public class DiscoveryManager extends AbstractDiscoveryManager {
 
   public void setSiteModel(SiteModel siteModel) {
     this.siteModel = siteModel;
+  }
+
+  @Override
+  protected DiscoveryState getDiscoveryState() {
+    return discoveryState;
+  }
+
+  @Override
+  protected void setDiscoveryState(DiscoveryState discoveryState) {
+    this.discoveryState = discoveryState;
+  }
+
+  @Override
+  protected DiscoveryConfig getDiscoveryConfig() {
+    return discoveryConfig;
+  }
+
+  @Override
+  protected void setDiscoveryConfig(DiscoveryConfig discoveryConfig) {
+    this.discoveryConfig = discoveryConfig;
   }
 }

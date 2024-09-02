@@ -147,7 +147,7 @@ public class DeviceManager extends ManagerBase implements AbstractDeviceManager 
   /**
    * Set the site model.
    */
-  public void setSiteModel(SiteModel siteModel) {
+  protected void setSiteModel(SiteModel siteModel) {
     discoveryManager.setSiteModel(siteModel);
     gatewayManager.setSiteModel(siteModel);
     localnetManager.setSiteModel(siteModel);
