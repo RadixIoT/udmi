@@ -19,7 +19,7 @@ import udmi.schema.PubberConfiguration;
 /**
  * Container class for dealing with the localnet subblock of UDMI.
  */
-public class LocalnetManager extends AbstractLocalnetManager implements ManagerHost {
+public class LocalnetManager extends ManagerBase implements AbstractLocalnetManager, ManagerHost {
 
   private static final Map<String, Class<? extends FamilyProvider>> LOCALNET_PROVIDERS =
       ImmutableMap.of(
@@ -52,17 +52,6 @@ public class LocalnetManager extends AbstractLocalnetManager implements ManagerH
     }
   }
 
-  public Map<String, FamilyDiscovery> enumerateFamilies() {
-    return localnetState.families.keySet().stream()
-        .collect(toMap(key -> key, this::makeFamilyDiscovery));
-  }
-
-  protected FamilyDiscovery makeFamilyDiscovery(String key) {
-    FamilyDiscovery familyDiscovery = new FamilyDiscovery();
-    familyDiscovery.addr = localnetState.families.get(key).addr;
-    return familyDiscovery;
-  }
-
   public FamilyProvider getLocalnetProvider(String family) {
     return localnetProviders.get(family);
   }
@@ -82,7 +71,7 @@ public class LocalnetManager extends AbstractLocalnetManager implements ManagerH
     updateState();
   }
 
-  private void updateState() {
+  public void updateState() {
     updateState(ifNotNullGet(localnetConfig, c -> localnetState, LocalnetState.class));
   }
 
@@ -95,8 +84,13 @@ public class LocalnetManager extends AbstractLocalnetManager implements ManagerH
     ((VendorProvider) localnetProviders.get(ProtocolFamily.VENDOR)).setSiteModel(siteModel);
   }
 
-  public void updateConfig(LocalnetConfig localnet) {
-    localnetConfig = localnet;
-    updateState();
+  @Override
+  public LocalnetConfig getLocalnetConfig() {
+    return localnetConfig;
+  }
+
+  @Override
+  public void setLocalnetConfig(LocalnetConfig localnetConfig) {
+    this.localnetConfig = localnetConfig;
   }
 }

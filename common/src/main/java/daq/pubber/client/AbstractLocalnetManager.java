@@ -13,55 +13,40 @@ import udmi.schema.LocalnetConfig;
 import udmi.schema.LocalnetState;
 import udmi.schema.PubberConfiguration;
 
-public abstract class AbstractLocalnetManager extends ManagerBase implements ManagerHost {
+public interface AbstractLocalnetManager {
 
-  private LocalnetConfig localnetConfig;
+  LocalnetConfig getLocalnetConfig();
+  void setLocalnetConfig(LocalnetConfig localnetConfig);
 
-  /**
-   * New instance.
-   *
-   * @param host
-   * @param configuration
-   */
-  public AbstractLocalnetManager(ManagerHost host, PubberConfiguration configuration) {
-    super(host, configuration);
-  }
-
-  public Map<String, FamilyDiscovery> enumerateFamilies() {
+  default Map<String, FamilyDiscovery> enumerateFamilies() {
     return getLocalnetState().families.keySet().stream()
         .collect(toMap(key -> key, this::makeFamilyDiscovery));
   }
 
-  protected FamilyDiscovery makeFamilyDiscovery(String key) {
+  default FamilyDiscovery makeFamilyDiscovery(String key) {
     FamilyDiscovery familyDiscovery = new FamilyDiscovery();
     familyDiscovery.addr = getLocalnetState().families.get(key).addr;
     return familyDiscovery;
   }
 
-  public void update(Object update) {
+  default void update(Object update) {
     throw new RuntimeException("Not yet implemented");
   }
 
+  void updateState();
 
-
-  private void updateState() {
-    updateState(ifNotNullGet(localnetConfig, c -> getLocalnetState(), LocalnetState.class));
-  }
-
-  @Override
-  public void publish(Object message) {
-    host.publish(message);
-  }
-
-
-  public void updateConfig(LocalnetConfig localnet) {
-    localnetConfig = localnet;
+  default void updateConfig(LocalnetConfig localnet) {
+    setLocalnetConfig(localnet);
     updateState();
   }
 
-  public abstract FamilyProvider getLocalnetProvider(String family);
+  FamilyProvider getLocalnetProvider(String family);
 
-  public abstract LocalnetState getLocalnetState();
+  LocalnetState getLocalnetState();
 
-  public abstract void setSiteModel(SiteModel siteModel);
+  void setSiteModel(SiteModel siteModel);
+
+  void stop();
+
+  void shutdown();
 }
