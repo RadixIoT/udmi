@@ -1,151 +1,110 @@
 package daq.pubber.client;
 
-import daq.pubber.ManagerBase;
-import daq.pubber.ManagerHost;
 import udmi.schema.Config;
 import udmi.schema.DevicePersistent;
 import udmi.schema.Entry;
 import udmi.schema.Level;
 import udmi.schema.Metadata;
 import udmi.schema.Operation.SystemMode;
-import udmi.schema.PubberConfiguration;
 
-public abstract class AbstractDeviceManager extends ManagerBase {
+public interface AbstractDeviceManager {
+  
+  AbstractPointsetManager getPointsetManager();
 
-  private AbstractPointsetManager pointsetManager;
-  private AbstractSystemManager systemManager;
-  private AbstractLocalnetManager localnetManager;
-  private AbstractGatewayManager gatewayManager;
-  private AbstractDiscoveryManager discoveryManager;
+  AbstractSystemManager getSystemManager();
 
-  /**
-   * New instance.
-   *
-   * @param host
-   * @param configuration
-   */
-  protected AbstractDeviceManager(ManagerHost host, PubberConfiguration configuration,
-      AbstractPointsetManager pointsetManager, AbstractSystemManager systemManager,
-      AbstractLocalnetManager localnetManager, AbstractGatewayManager gatewayManager,
-      AbstractDiscoveryManager discoveryManager) {
-    super(host, configuration);
-    this.pointsetManager = pointsetManager;
-    this.systemManager = systemManager;
-    this.localnetManager = localnetManager;
-    this.gatewayManager = gatewayManager;
-    this.discoveryManager = discoveryManager;
-  }
+  AbstractLocalnetManager getLocalnetManager();
 
-  protected AbstractDeviceManager(ManagerHost host, PubberConfiguration configuration) {
-    super(host, configuration);
-  }
+  AbstractGatewayManager getGatewayManager();
 
-
-  public AbstractPointsetManager getPointsetManager() {
-    return pointsetManager;
-  }
-
-  public AbstractSystemManager getSystemManager() {
-    return systemManager;
-  }
-
-  public AbstractLocalnetManager getLocalnetManager() {
-    return localnetManager;
-  }
-
-  public AbstractGatewayManager getGatewayManager() {
-    return gatewayManager;
-  }
-
-  public AbstractDiscoveryManager getDiscoveryManager() {
-    return discoveryManager;
-  }
-
+  AbstractDiscoveryManager getDiscoveryManager();
 
   /**
    * Shutdown everything, including sub-managers.
    */
-  @Override
-  public void shutdown() {
-    systemManager.shutdown();
-    pointsetManager.shutdown();
-    localnetManager.shutdown();
-    gatewayManager.shutdown();
+  default void shutdown() {
+    getSystemManager().shutdown();
+    getPointsetManager().shutdown();
+    getLocalnetManager().shutdown();
+    getGatewayManager().shutdown();
   }
 
   /**
    * Stop periodic senders.
    */
-  @Override
-  public void stop() {
-    pointsetManager.stop();
-    localnetManager.stop();
-    gatewayManager.stop();
-    systemManager.stop();
+  
+  default void stop() {
+    getPointsetManager().stop();
+    getLocalnetManager().stop();
+    getGatewayManager().stop();
+    getSystemManager().stop();
   }
 
 
-  public void setPersistentData(DevicePersistent persistentData) {
-    systemManager.setPersistentData(persistentData);
+  default void setPersistentData(DevicePersistent persistentData) {
+    getSystemManager().setPersistentData(persistentData);
   }
 
   /**
    * Set the metadata for this device.
    */
-  public void setMetadata(Metadata metadata) {
-    pointsetManager.setPointsetModel(metadata.pointset);
-    systemManager.setMetadata(metadata);
-    gatewayManager.setMetadata(metadata);
+  default void setMetadata(Metadata metadata) {
+    getPointsetManager().setPointsetModel(metadata.pointset);
+    getSystemManager().setMetadata(metadata);
+    getGatewayManager().setMetadata(metadata);
   }
 
-  public void activate() {
-    gatewayManager.activate();
+  default void activate() {
+    getGatewayManager().activate();
   }
 
-  public void systemLifecycle(SystemMode mode) {
-    systemManager.systemLifecycle(mode);
+  default void systemLifecycle(SystemMode mode) {
+    getSystemManager().systemLifecycle(mode);
   }
 
-  public void maybeRestartSystem() {
-    systemManager.maybeRestartSystem();
+  default void maybeRestartSystem() {
+    getSystemManager().maybeRestartSystem();
   }
 
-  public void localLog(Entry report) {
-    systemManager.localLog(report);
+  default void localLog(Entry report) {
+    getSystemManager().localLog(report);
   }
 
-  public void localLog(String message, Level trace, String timestamp, String detail) {
-    systemManager.localLog(message, trace, timestamp, detail);
+  default void localLog(String message, Level trace, String timestamp, String detail) {
+    getSystemManager().localLog(message, trace, timestamp, detail);
   }
 
-  public String getTestingTag() {
-    return systemManager.getTestingTag();
+  default String getTestingTag() {
+    return getSystemManager().getTestingTag();
   }
 
   /**
    * Update the config of this device.
    */
-  public void updateConfig(Config config) {
-    pointsetManager.updateConfig(config.pointset);
-    systemManager.updateConfig(config.system, config.timestamp);
-    gatewayManager.updateConfig(config.gateway);
-    discoveryManager.updateConfig(config.discovery);
-    localnetManager.updateConfig(config.localnet);
+  default void updateConfig(Config config) {
+    getPointsetManager().updateConfig(config.pointset);
+    getSystemManager().updateConfig(config.system, config.timestamp);
+    getGatewayManager().updateConfig(config.gateway);
+    getDiscoveryManager().updateConfig(config.discovery);
+    getLocalnetManager().updateConfig(config.localnet);
   }
 
   /**
    * Publish log message for target device.
    */
-  public void publishLogMessage(Entry logEntry, String targetId) {
+  default void publishLogMessage(Entry logEntry, String targetId) {
     if (getDeviceId().equals(targetId)) {
-      systemManager.publishLogMessage(logEntry);
+      getSystemManager().publishLogMessage(logEntry);
     } else {
-      gatewayManager.publishLogMessage(logEntry, targetId);
+      getGatewayManager().publishLogMessage(logEntry, targetId);
     }
   }
 
-  public void cloudLog(String message, Level level, String detail) {
-    systemManager.cloudLog(message, level, detail);
+  default void cloudLog(String message, Level level, String detail) {
+    getSystemManager().cloudLog(message, level, detail);
   }
+
+
+  String getDeviceId();
 
 }

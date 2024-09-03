@@ -20,7 +20,7 @@ import udmi.schema.PubberConfiguration;
 /**
  * Uber-manager for a complete device.
  */
-public class DeviceManager extends AbstractDeviceManager {
+public class DeviceManager extends ManagerBase implements AbstractDeviceManager {
 
   private final AbstractPointsetManager pointsetManager;
   private final AbstractSystemManager systemManager;
@@ -104,15 +104,29 @@ public class DeviceManager extends AbstractDeviceManager {
     systemManager.cloudLog(message, level, detail);
   }
 
-  /**
-   * Shutdown everything, including sub-managers.
-   */
   @Override
-  public void shutdown() {
-    systemManager.shutdown();
-    pointsetManager.shutdown();
-    localnetManager.shutdown();
-    gatewayManager.shutdown();
+  public AbstractPointsetManager getPointsetManager() {
+    return pointsetManager;
+  }
+
+  @Override
+  public AbstractSystemManager getSystemManager() {
+    return systemManager;
+  }
+
+  @Override
+  public AbstractLocalnetManager getLocalnetManager() {
+    return localnetManager;
+  }
+
+  @Override
+  public AbstractGatewayManager getGatewayManager() {
+    return gatewayManager;
+  }
+
+  @Override
+  public AbstractDiscoveryManager getDiscoveryManager() {
+    return discoveryManager;
   }
 
   /**
