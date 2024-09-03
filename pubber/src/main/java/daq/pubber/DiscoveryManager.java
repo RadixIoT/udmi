@@ -90,99 +90,7 @@ public class DiscoveryManager extends AbstractDiscoveryManager {
     host.publish(discoveryEvent);
   }
 
-  private <K, V> Map<K, V> maybeEnumerate(Depth depth, Supplier<Map<K, V>> supplier) {
-    return ifTrueGet(shouldEnumerateTo(depth), supplier);
-  }
 
-  private void updateDiscoveryScan(Map<String, FamilyDiscoveryConfig> raw) {
-    Map<String, FamilyDiscoveryConfig> families = ofNullable(raw).orElse(ImmutableMap.of());
-    ifNullThen(discoveryState.families, () -> discoveryState.families = new HashMap<>());
-
-    discoveryState.families.keySet().stream().filter(not(families::containsKey))
-        .forEach(this::removeDiscoveryScan);
-    families.keySet().forEach(this::scheduleDiscoveryScan);
-
-    if (raw == null) {
-      discoveryState.families = null;
-    }
-  }
-
-  private void scheduleDiscoveryScan(String family) {
-    FamilyDiscoveryConfig familyDiscoveryConfig = getFamilyDiscoveryConfig(family);
-    Date rawGeneration = familyDiscoveryConfig.generation;
-    int interval = getScanInterval(family);
-    if (rawGeneration == null && interval == 0) {
-      cancelDiscoveryScan(family, null, null);
-      return;
-    }
-
-    Date configGeneration = ofNullable(rawGeneration).orElse(DEVICE_START_TIME);
-    FamilyDiscoveryState familyDiscoveryState = ensureFamilyDiscoveryState(family);
-    Date baseGeneration = ofNullable(familyDiscoveryState.generation).orElse(DEVICE_START_TIME);
-
-    final Date startGeneration;
-    if (interval > 0) {
-      Instant now = Instant.now();
-      long deltaSec = floorMod(configGeneration.getTime() / 1000 - now.getEpochSecond(), interval);
-      startGeneration = Date.from(now.plusSeconds(deltaSec));
-    } else if (configGeneration.before(baseGeneration)) {
-      cancelDiscoveryScan(family, configGeneration, STOPPED);
-      return;
-    } else {
-      startGeneration = configGeneration;
-    }
-
-    if (startGeneration.equals(baseGeneration)) {
-      return;
-    }
-
-    info("Discovery scan generation " + family + " pending at " + isoConvert(startGeneration));
-    familyDiscoveryState.generation = startGeneration;
-    familyDiscoveryState.phase = PENDING;
-    updateState();
-
-    scheduleFuture(startGeneration, () -> checkDiscoveryScan(family, startGeneration));
-  }
-
-  private FamilyDiscoveryConfig getFamilyDiscoveryConfig(String family) {
-    return discoveryConfig.families.get(family);
-  }
-
-  private void removeDiscoveryScan(String family) {
-    FamilyDiscoveryState removed = discoveryState.families.remove(family);
-    ifNotNullThen(removed, was -> cancelDiscoveryScan(family, was.generation, STOPPED));
-  }
-
-  private void cancelDiscoveryScan(String family, Date configGeneration, Phase phase) {
-    FamilyDiscoveryState familyDiscoveryState = getFamilyDiscoveryState(family);
-    info(format("Discovery scan %s phase %s as %s", family, phase, isoConvert(configGeneration)));
-    familyDiscoveryState.phase = phase;
-    familyDiscoveryState.generation = configGeneration;
-    updateState();
-  }
-
-  private FamilyDiscoveryState getFamilyDiscoveryState(String family) {
-    return discoveryState.families.get(family);
-  }
-
-  private FamilyDiscoveryState ensureFamilyDiscoveryState(String family) {
-    if (discoveryState.families == null) {
-      // If there is no need for family state, then return a floating bucket for results.
-      return new FamilyDiscoveryState();
-    }
-    return discoveryState.families.computeIfAbsent(
-        family, key -> new FamilyDiscoveryState());
-  }
-
-  private void checkDiscoveryScan(String family, Date scanGeneration) {
-    try {
-      FamilyDiscoveryState familyDiscoveryState = ensureFamilyDiscoveryState(family);
-      ifTrueThen(familyDiscoveryState.phase == PENDING,
-          () -> startDiscoveryScan(family, scanGeneration));
-    } catch (Exception e) {
-      throw new RuntimeException("While checking for discovery scan start", e);
-    }
-  }
 
   protected void startDiscoveryScan(String family, Date scanGeneration) {
     info("Discovery scan starting " + family + " as " + isoConvert(scanGeneration));
@@ -247,11 +155,6 @@ public class DiscoveryManager extends AbstractDiscoveryManager {
     }
   }
 
-  private int getScanInterval(String family) {
-    return ofNullable(
-        catchToNull(() -> getFamilyDiscoveryConfig(family).scan_interval_sec)).orElse(0);
-  }
-
   @Override
   protected Date getDeviceStartTime() {
     return DEVICE_START_TIME;
@@ -281,13 +184,10 @@ public class DiscoveryManager extends AbstractDiscoveryManager {
     return pointDiscovery;
   }
 
-  private void updateState() {
-    updateState(ofNullable((Object) discoveryState).orElse(DiscoveryState.class));
-  }
-
   /**
    * Update the discovery config.
    */
+  @Override
   public void updateConfig(DiscoveryConfig discovery) {
     discoveryConfig = discovery;
     if (discovery == null) {
