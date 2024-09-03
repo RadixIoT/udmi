@@ -13,9 +13,11 @@ import static udmi.schema.Category.GATEWAY_PROXY_TARGET;
 
 import com.google.udmi.util.SiteModel;
 import daq.pubber.client.AbstractGatewayManager;
+import daq.pubber.client.AbstractProxyDevice;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import udmi.schema.Config;
 import udmi.schema.Entry;
@@ -30,11 +32,11 @@ import udmi.schema.PubberConfiguration;
 /**
  * Manager for UDMI gateway functionality.
  */
-public class GatewayManager extends AbstractGatewayManager {
+public class GatewayManager extends ManagerBase implements AbstractGatewayManager {
 
   private static final String EXTRA_PROXY_DEVICE = "XXX-1";
   private static final String EXTRA_PROXY_POINT = "xxx_conflagration";
-  private Map<String, ProxyDevice> proxyDevices;
+  private Map<String, AbstractProxyDevice> proxyDevices;
   private SiteModel siteModel;
   private Metadata metadata;
   private GatewayState gatewayState;
@@ -43,12 +45,19 @@ public class GatewayManager extends AbstractGatewayManager {
     super(host, configuration);
   }
 
-  private Map<String, ProxyDevice> createProxyDevices(List<String> proxyIds) {
+  /**
+   * Creates a map of proxy devices.
+   *
+   * @param proxyIds A list of device IDs to create proxies for.
+   * @return A map where each key-value pair represents a device ID and its corresponding proxy
+   * @throws NoSuchElementException if no first element exists in the stream
+   */
+  public Map<String, AbstractProxyDevice> createProxyDevices(List<String> proxyIds) {
     if (proxyIds == null) {
       return Map.of();
     }
 
-    Map<String, ProxyDevice> devices = new HashMap<>();
+    Map<String, AbstractProxyDevice> devices = new HashMap<>();
     if (!proxyIds.isEmpty()) {
       String firstId = proxyIds.stream().sorted().findFirst().orElseThrow();
       String noProxyId = ifTrueGet(isTrue(options.noProxy), () -> firstId);
@@ -70,8 +79,8 @@ public class GatewayManager extends AbstractGatewayManager {
    */
   public void publishLogMessage(Entry logEntry, String targetId) {
     ifNotNullThen(proxyDevices, p -> p.values().forEach(pd -> {
-      if (pd.deviceId.equals(targetId)) {
-        pd.deviceManager.publishLogMessage(logEntry, targetId);
+      if (pd.getDeviceId().equals(targetId)) {
+        pd.getDeviceManager().publishLogMessage(logEntry, targetId);
       }
     }));
   }
@@ -82,7 +91,7 @@ public class GatewayManager extends AbstractGatewayManager {
   }
 
   public void activate() {
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDevice::activate));
+    ifNotNullThen(proxyDevices, p -> p.values().forEach(AbstractProxyDevice::activate));
   }
 
   ProxyDevice makeExtraDevice() {
@@ -114,7 +123,17 @@ public class GatewayManager extends AbstractGatewayManager {
     updateState();
   }
 
-  protected void setGatewayStatus(String category, Level level, String message) {
+  /**
+   * Sets the status of the gateway.
+   *
+   * @param category The category of the error or warning. This could be a specific module, service,
+   *                etc., that is causing the issue.
+   * @param level The severity level of the message. This can be used to determine how severe the
+   *              issue is and what action should be taken.
+   * @param message A detailed description of the status. This provides more information about the
+   *                current state of the gateway or any issues it may have encountered.
+   */
+  public void setGatewayStatus(String category, Level level, String message) {
     // TODO: Implement a map or tree or something to properly handle different error sources.
     gatewayState.status = new Entry();
     gatewayState.status.category = category;
@@ -122,11 +141,21 @@ public class GatewayManager extends AbstractGatewayManager {
     gatewayState.status.message = message;
   }
 
-  protected void updateState() {
+  /**
+   * Updates the state of the gateway.
+   */
+  public void updateState() {
     updateState(ofNullable((Object) gatewayState).orElse(GatewayState.class));
   }
 
-  protected String validateGatewayFamily(String family) {
+  /**
+   * Validates the given gateway family.
+   *
+   * @param family The gateway family to validate.
+   * @return The validated family if successful; otherwise, null.
+   * @throws NullPointerException If the address for the specified family is null or undefined.
+   */
+  public String validateGatewayFamily(String family) {
     if (family == null) {
       return null;
     }
@@ -136,7 +165,11 @@ public class GatewayManager extends AbstractGatewayManager {
     return family;
   }
 
-  protected void configExtraDevice() {
+  /**
+   * Configures the extra device with default settings.
+   *
+   */
+  public void configExtraDevice() {
     Config config = new Config();
     config.pointset = new PointsetConfig();
     config.pointset.points = new HashMap<>();
@@ -148,13 +181,13 @@ public class GatewayManager extends AbstractGatewayManager {
   @Override
   public void shutdown() {
     super.shutdown();
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDevice::shutdown));
+    ifNotNullThen(proxyDevices, p -> p.values().forEach(AbstractProxyDevice::shutdown));
   }
 
   @Override
   public void stop() {
     super.stop();
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDevice::stop));
+    ifNotNullThen(proxyDevices, p -> p.values().forEach(AbstractProxyDevice::stop));
   }
 
   public void setSiteModel(SiteModel siteModel) {
@@ -164,9 +197,24 @@ public class GatewayManager extends AbstractGatewayManager {
 
   private void processMetadata() {
     ifNotNullThen(proxyDevices, p -> p.values().forEach(proxy -> {
-      Metadata metadata = ifNotNullGet(siteModel, s -> s.getMetadata(proxy.deviceId));
-      metadata = ofNullable(metadata).orElse(new Metadata());
-      proxy.setMetadata(metadata);
+      Metadata localMetadata = ifNotNullGet(siteModel, s -> s.getMetadata(proxy.getDeviceId()));
+      localMetadata = ofNullable(localMetadata).orElse(new Metadata());
+      proxy.setMetadata(localMetadata);
     }));
+  }
+
+  @Override
+  public Metadata getMetadata() {
+    return metadata;
+  }
+
+  @Override
+  public GatewayState getGatewayState() {
+    return gatewayState;
+  }
+
+  @Override
+  public Map<String, AbstractProxyDevice> getProxyDevices() {
+    return proxyDevices;
   }
 }

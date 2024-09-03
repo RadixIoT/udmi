@@ -12,6 +12,7 @@ import daq.pubber.ManagerHost;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import udmi.schema.Config;
 import udmi.schema.Entry;
@@ -23,28 +24,14 @@ import udmi.schema.PointPointsetConfig;
 import udmi.schema.PointsetConfig;
 import udmi.schema.PubberConfiguration;
 
-public abstract class AbstractGatewayManager extends ManagerBase {
+public interface AbstractGatewayManager {
+  
+  Metadata getMetadata();
+  void setMetadata(Metadata metadata);
+  GatewayState getGatewayState();
+  Map<String, AbstractProxyDevice> getProxyDevices();
 
-  protected static final String EXTRA_PROXY_DEVICE = "XXX-1";
-  protected static final String EXTRA_PROXY_POINT = "xxx_conflagration";
-  protected Metadata metadata;
-  protected GatewayState gatewayState;
-  protected Map<String, AbstractProxyDevice> proxyDevices;
-
-
-
-  /**
-   * New instance.
-   *
-   * @param host
-   * @param configuration
-   */
-  public AbstractGatewayManager(ManagerHost host,
-      PubberConfiguration configuration) {
-    super(host, configuration);
-  }
-
-  public void activate() {
+  default void activate() {
     throw new UnsupportedOperationException("Not supported yet.");
   }
 
@@ -52,58 +39,35 @@ public abstract class AbstractGatewayManager extends ManagerBase {
   /**
    * Publish log message for target device.
    */
-  public void publishLogMessage(Entry logEntry, String targetId) {
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(pd -> {
+  default void publishLogMessage(Entry logEntry, String targetId) {
+    ifNotNullThen(getProxyDevices(), p -> p.values().forEach(pd -> {
       if (pd.getDeviceId().equals(targetId)) {
         pd.getDeviceManager().publishLogMessage(logEntry, targetId);
       }
     }));
   }
 
-  public void setMetadata(Metadata metadata) {
-    this.metadata = metadata;
-    proxyDevices = ifNotNullGet(metadata.gateway, g -> createProxyDevices(g.proxy_ids));
-  }
+  Map<String, AbstractProxyDevice> createProxyDevices(List<String> proxyIds);
 
-  private Map<String, AbstractProxyDevice> createProxyDevices(List<String> proxyIds) {
-    throw new UnsupportedOperationException("Not supported yet.");
-  }
-
-
-  protected void setGatewayStatus(String category, Level level, String message) {
+  default void setGatewayStatus(String category, Level level, String message) {
     // TODO: Implement a map or tree or something to properly handle different error sources.
-    gatewayState.status = new Entry();
-    gatewayState.status.category = category;
-    gatewayState.status.level = level.value();
-    gatewayState.status.message = message;
+    getGatewayState().status = new Entry();
+    getGatewayState().status.category = category;
+    getGatewayState().status.level = level.value();
+    getGatewayState().status.message = message;
   }
 
-  protected void updateState() {
-    updateState(ofNullable((Object) gatewayState).orElse(GatewayState.class));
-  }
+  void stop();
 
-  protected String validateGatewayFamily(String family) {
-    if (family == null) {
-      return null;
-    }
-    debug("Validating gateway family " + family);
-    Objects.requireNonNull(catchToNull(() -> metadata.localnet.families.get(family).addr),
-        format("Address family %s addr is null or undefined", family));
-    return family;
-  }
+  void updateState();
 
-  protected void configExtraDevice() {
-    Config config = new Config();
-    config.pointset = new PointsetConfig();
-    config.pointset.points = new HashMap<>();
-    PointPointsetConfig pointPointsetConfig = new PointPointsetConfig();
-    config.pointset.points.put(EXTRA_PROXY_POINT, pointPointsetConfig);
-    proxyDevices.get(EXTRA_PROXY_DEVICE).configHandler(config);
-  }
+  void shutdown();
 
-  public abstract void updateConfig(GatewayConfig gateway);
+  String validateGatewayFamily(String family);
 
-  public void setSiteModel(SiteModel siteModel) {
+  void configExtraDevice();
 
-  }
+  void updateConfig(GatewayConfig gateway);
+
+   void setSiteModel(SiteModel siteModel);
 }

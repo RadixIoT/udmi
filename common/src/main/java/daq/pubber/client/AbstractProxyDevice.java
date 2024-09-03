@@ -37,19 +37,7 @@ public abstract class AbstractProxyDevice extends ManagerBase implements Manager
     return proxyConfiguration;
   }
 
-  protected void activate() {
-    try {
-      active.set(false);
-      MqttDevice mqttDevice = pubberHost.getMqttDevice(getDeviceId());
-      mqttDevice.registerHandler(MqttDevice.CONFIG_TOPIC, this::configHandler, Config.class);
-      mqttDevice.connect(getDeviceId());
-      getDeviceManager().activate();
-      active.set(true);
-      info("Activated proxy device " + getDeviceId());
-    } catch (Exception e) {
-      error(format("Could not connect proxy device %s: %s", getDeviceManager(), friendlyStackTrace(e)));
-    }
-  }
+  public abstract void activate();
 
   public void configHandler(Config config) {
     pubberHost.configPreprocess(getDeviceId(), config);
