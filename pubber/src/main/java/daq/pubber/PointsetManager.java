@@ -274,7 +274,7 @@ public class PointsetManager extends ManagerBase implements AbstractPointsetMana
   }
 
   @Override
-  protected void periodicUpdate() {
+  public void periodicUpdate() {
     try {
       if (pointsetState != null) {
         pointsetUpdateCount++;

@@ -18,7 +18,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.udmi.util.CleanDateFormat;
 import daq.pubber.client.AbstractSystemManager;
-import daq.pubber.client.AbstractSystemManager.ExtraSystemState;
 import java.io.File;
 import java.io.PrintStream;
 import java.time.Instant;
@@ -29,7 +28,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
-import udmi.schema.DevicePersistent;
 import udmi.schema.Entry;
 import udmi.schema.Level;
 import udmi.schema.Metadata;
@@ -41,12 +39,11 @@ import udmi.schema.StateSystemHardware;
 import udmi.schema.StateSystemOperation;
 import udmi.schema.SystemConfig;
 import udmi.schema.SystemEvents;
-import udmi.schema.SystemState;
 
 /**
  * Support manager for system stuff.
  */
-public class SystemManager extends AbstractSystemManager {
+public class SystemManager extends ManagerBase implements AbstractSystemManager {
 
   public static final String PUBBER_LOG_CATEGORY = "device.log";
   public static final String PUBBER_LOG = "pubber.log";
@@ -131,7 +128,12 @@ public class SystemManager extends AbstractSystemManager {
     }
   }
 
-  protected void setHardwareSoftware(Metadata metadata) {
+  /**
+   * Retrieves the hardware and software from metadata.
+   *
+   * @param metadata the input metadata.
+   */
+  public void setHardwareSoftware(Metadata metadata) {
 
     systemState.hardware.make = catchOrElse(
         () -> metadata.system.hardware.make, () -> DEFAULT_MAKE);
@@ -153,11 +155,16 @@ public class SystemManager extends AbstractSystemManager {
   }
 
   @Override
-  protected AbstractSystemManager.ExtraSystemState getSystemState() {
+  public AbstractSystemManager.ExtraSystemState getSystemState() {
     return this.systemState;
   }
 
-  protected SystemEvents getSystemEvent() {
+  /**
+   * Retrieves the system events.
+   *
+   * @return the system events.
+   */
+  public SystemEvents getSystemEvent() {
     SystemEvents systemEvent = new SystemEvents();
     systemEvent.last_config = systemState.last_config;
     return systemEvent;
@@ -198,15 +205,19 @@ public class SystemManager extends AbstractSystemManager {
   }
 
   @Override
-  protected Date getDeviceStartTime() {
+  public Date getDeviceStartTime() {
     return DEVICE_START_TIME;
   }
 
-  private void updateState() {
+  public void updateState() {
     host.update(systemState);
   }
 
-  private void sendSystemEvent() {
+  /**
+   * Send a system event.
+   *
+   */
+  public void sendSystemEvent() {
     SystemEvents systemEvent = getSystemEvent();
     systemEvent.metrics = new Metrics();
     Runtime runtime = Runtime.getRuntime();
@@ -220,11 +231,6 @@ public class SystemManager extends AbstractSystemManager {
   }
 
   @Override
-  protected void periodicUpdate() {
-    sendSystemEvent();
-  }
-
-  @Override
   public void systemLifecycle(SystemMode mode) {
     systemState.operation.mode = mode;
     try {
@@ -235,16 +241,6 @@ public class SystemManager extends AbstractSystemManager {
     int exitCode = EXIT_CODE_MAP.getOrDefault(mode, UNKNOWN_MODE_EXIT_CODE);
     error("Stopping system with extreme prejudice, restart " + mode + " with code " + exitCode);
     System.exit(exitCode);
-  }
-
-  @Override
-  public void setMetadata(Metadata metadata) {
-    setHardwareSoftware(metadata);
-  }
-
-  @Override
-  public void setPersistentData(DevicePersistent persistentData) {
-    systemState.operation.restart_count = persistentData.restart_count;
   }
 
   @Override
@@ -262,14 +258,13 @@ public class SystemManager extends AbstractSystemManager {
     updateState();
   }
 
-  @Override
-  public void publishLogMessage(Entry report) {
-    if (shouldLogLevel(report.level)) {
-      logentries.add(report);
-    }
-  }
-
-  private boolean shouldLogLevel(int level) {
+  /**
+   * Check if we should log at the level provided.
+   *
+   * @param level the level.
+   * @return true if we can log at the level provided.
+   */
+  public boolean shouldLogLevel(int level) {
     if (options.fixedLogLevel != null) {
       return level >= options.fixedLogLevel;
     }
@@ -295,22 +290,6 @@ public class SystemManager extends AbstractSystemManager {
     } finally {
       publishingLog = false;
     }
-  }
-
-  @Override
-  public String getTestingTag() {
-    SystemConfig config = systemConfig;
-    return config == null || config.testing == null
-        || config.testing.sequence_name == null ? ""
-        : format(" (%s)", config.testing.sequence_name);
-  }
-
-  @Override
-  public void localLog(Entry entry) {
-    String message = format("Log %s%s %s %s %s%s", Level.fromValue(entry.level).name(),
-        shouldLogLevel(entry.level) ? "" : "*",
-        entry.category, entry.message, isoConvert(entry.timestamp), getTestingTag());
-    localLog(message, Level.fromValue(entry.level), isoConvert(entry.timestamp), null);
   }
 
   @Override
@@ -347,4 +326,23 @@ public class SystemManager extends AbstractSystemManager {
     publishLogMessage(logEntry);
   }
 
+  @Override
+  public List<Entry> getLogentries() {
+    return logentries;
+  }
+
+  @Override
+  public boolean getPublishingLog() {
+    return publishingLog;
+  }
+
+  @Override
+  public int getSystemEventCount() {
+    return systemEventCount;
+  }
+
+  @Override
+  public SystemConfig getSystemConfig() {
+    return systemConfig;
+  }
 }

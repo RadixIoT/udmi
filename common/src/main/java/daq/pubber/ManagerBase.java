@@ -105,7 +105,7 @@ public abstract class ManagerBase {
     }
   }
 
-  protected void periodicUpdate() {
+  public void periodicUpdate() {
     throw new IllegalStateException("No periodic update handler defined");
   }
 
