@@ -156,4 +156,5 @@ public abstract class ManagerBase {
   public String getDeviceId() {
     return deviceId;
   }
+
 }
