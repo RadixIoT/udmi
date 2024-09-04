@@ -12,8 +12,8 @@ import static java.util.Optional.ofNullable;
 import static udmi.schema.Category.GATEWAY_PROXY_TARGET;
 
 import com.google.udmi.util.SiteModel;
-import daq.pubber.client.AbstractGatewayManager;
 import daq.pubber.client.AbstractProxyDevice;
+import daq.pubber.client.GatewayClient;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,7 +32,7 @@ import udmi.schema.PubberConfiguration;
 /**
  * Manager for UDMI gateway functionality.
  */
-public class GatewayManager extends ManagerBase implements AbstractGatewayManager {
+public class GatewayManager extends ManagerBase implements GatewayClient {
 
   private static final String EXTRA_PROXY_DEVICE = "XXX-1";
   private static final String EXTRA_PROXY_POINT = "xxx_conflagration";

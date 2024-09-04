@@ -14,10 +14,7 @@ import static java.util.function.Predicate.not;
 import static udmi.schema.FamilyDiscoveryState.Phase.PENDING;
 import static udmi.schema.FamilyDiscoveryState.Phase.STOPPED;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.udmi.util.SiteModel;
-import daq.pubber.ManagerBase;
-import daq.pubber.ManagerHost;
 import daq.pubber.ManagerLog;
 import java.time.Instant;
 import java.util.Date;
@@ -30,9 +27,8 @@ import udmi.schema.DiscoveryConfig;
 import udmi.schema.DiscoveryState;
 import udmi.schema.FamilyDiscoveryConfig;
 import udmi.schema.FamilyDiscoveryState;
-import udmi.schema.PubberConfiguration;
 
-public interface AbstractDiscoveryManager extends ManagerLog {
+public interface DiscoveryClient extends ManagerLog {
 
 
   private static boolean shouldEnumerateTo(Depths.Depth depth) {

@@ -1,44 +1,30 @@
 package daq.pubber;
 
-import static com.google.udmi.util.GeneralUtils.catchToNull;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifNullElse;
-import static com.google.udmi.util.GeneralUtils.ifNullThen;
 import static com.google.udmi.util.GeneralUtils.ifTrueGet;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
-import static com.google.udmi.util.GeneralUtils.isGetTrue;
 import static com.google.udmi.util.JsonUtil.isoConvert;
 import static daq.pubber.Pubber.DEVICE_START_TIME;
 import static java.lang.Math.floorMod;
 import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
-import static java.util.function.Predicate.not;
 import static udmi.schema.FamilyDiscoveryState.Phase.ACTIVE;
 import static udmi.schema.FamilyDiscoveryState.Phase.DONE;
-import static udmi.schema.FamilyDiscoveryState.Phase.PENDING;
-import static udmi.schema.FamilyDiscoveryState.Phase.STOPPED;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.udmi.util.SiteModel;
-import daq.pubber.client.AbstractDiscoveryManager;
-import java.time.Instant;
+import daq.pubber.client.DiscoveryClient;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import udmi.schema.Depths;
 import udmi.schema.Depths.Depth;
 import udmi.schema.DiscoveryConfig;
 import udmi.schema.DiscoveryEvents;
 import udmi.schema.DiscoveryState;
-import udmi.schema.FamilyDiscovery;
-import udmi.schema.FamilyDiscoveryConfig;
 import udmi.schema.FamilyDiscoveryState;
-import udmi.schema.FamilyDiscoveryState.Phase;
-import udmi.schema.FamilyLocalnetModel;
-import udmi.schema.Metadata;
 import udmi.schema.PointDiscovery;
 import udmi.schema.PointPointsetModel;
 import udmi.schema.PubberConfiguration;
@@ -47,7 +33,7 @@ import udmi.schema.SystemDiscoveryData;
 /**
  * Manager wrapper for discovery functionality in pubber.
  */
-public class DiscoveryManager extends ManagerBase implements AbstractDiscoveryManager {
+public class DiscoveryManager extends ManagerBase implements DiscoveryClient {
 
   public static final int SCAN_DURATION_SEC = 10;
 

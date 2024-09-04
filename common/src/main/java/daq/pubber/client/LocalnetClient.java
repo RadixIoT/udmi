@@ -5,15 +5,12 @@ import static java.util.stream.Collectors.toMap;
 
 import com.google.udmi.util.SiteModel;
 import daq.pubber.FamilyProvider;
-import daq.pubber.ManagerBase;
-import daq.pubber.ManagerHost;
 import java.util.Map;
 import udmi.schema.FamilyDiscovery;
 import udmi.schema.LocalnetConfig;
 import udmi.schema.LocalnetState;
-import udmi.schema.PubberConfiguration;
 
-public interface AbstractLocalnetManager {
+public interface LocalnetClient {
 
   LocalnetConfig getLocalnetConfig();
   void setLocalnetConfig(LocalnetConfig localnetConfig);

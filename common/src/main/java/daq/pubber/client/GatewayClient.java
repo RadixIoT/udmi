@@ -1,30 +1,19 @@
 package daq.pubber.client;
 
-import static com.google.udmi.util.GeneralUtils.catchToNull;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static java.lang.String.format;
-import static java.util.Optional.ofNullable;
 
 import com.google.udmi.util.SiteModel;
-import daq.pubber.ManagerBase;
-import daq.pubber.ManagerHost;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Objects;
-import udmi.schema.Config;
 import udmi.schema.Entry;
 import udmi.schema.GatewayConfig;
 import udmi.schema.GatewayState;
 import udmi.schema.Level;
 import udmi.schema.Metadata;
-import udmi.schema.PointPointsetConfig;
-import udmi.schema.PointsetConfig;
-import udmi.schema.PubberConfiguration;
 
-public interface AbstractGatewayManager {
+public interface GatewayClient {
   
   Metadata getMetadata();
   void setMetadata(Metadata metadata);

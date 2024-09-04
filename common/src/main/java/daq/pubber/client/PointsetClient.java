@@ -14,7 +14,7 @@ import udmi.schema.PointsetEvents;
 import udmi.schema.PointsetModel;
 import udmi.schema.PointsetState;
 
-public interface AbstractPointsetManager  {
+public interface PointsetClient {
 
   ExtraPointsetEvent getPointsetEvent();
   Map<String, AbstractPoint> getManagedPoints();

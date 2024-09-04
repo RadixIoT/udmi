@@ -15,7 +15,7 @@ import static java.util.Optional.ofNullable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
-import daq.pubber.client.AbstractPointsetManager;
+import daq.pubber.client.PointsetClient;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -36,7 +36,7 @@ import udmi.schema.PubberConfiguration;
 /**
  * Helper class to manage the operation of a pointset block.
  */
-public class PointsetManager extends ManagerBase implements AbstractPointsetManager {
+public class PointsetManager extends ManagerBase implements PointsetClient {
 
   private static final Set<String> BOOLEAN_UNITS = ImmutableSet.of("No-units");
   private static final double DEFAULT_BASELINE_VALUE = 50;

@@ -1,14 +1,11 @@
 package daq.pubber.client;
 
 import static com.google.udmi.util.GeneralUtils.deepCopy;
-import static com.google.udmi.util.GeneralUtils.friendlyStackTrace;
 import static java.lang.String.format;
 
 import daq.pubber.FamilyProvider;
 import daq.pubber.ManagerBase;
 import daq.pubber.ManagerHost;
-import daq.pubber.MqttDevice;
-import java.util.Date;
 import java.util.concurrent.atomic.AtomicBoolean;
 import udmi.schema.Config;
 import udmi.schema.Metadata;
@@ -19,7 +16,7 @@ import udmi.schema.PubberConfiguration;
  */
 public abstract class AbstractProxyDevice extends ManagerBase implements ManagerHost {
 
-  final AbstractPubber pubberHost;
+  final PubberClient pubberHost;
   private final AtomicBoolean active = new AtomicBoolean();
 
   /**
@@ -28,7 +25,7 @@ public abstract class AbstractProxyDevice extends ManagerBase implements Manager
   public AbstractProxyDevice(ManagerHost host, String id, PubberConfiguration config) {
     super(host, makeProxyConfiguration(id, config));
     // Simple shortcut to get access to some foundational mechanisms inside of Pubber.
-    pubberHost = (AbstractPubber) host;
+    pubberHost = (PubberClient) host;
   }
 
   private static PubberConfiguration makeProxyConfiguration(String id, PubberConfiguration config) {
@@ -78,5 +75,5 @@ public abstract class AbstractProxyDevice extends ManagerBase implements Manager
     getDeviceManager().setMetadata(metadata);
   }
 
-  public abstract AbstractDeviceManager getDeviceManager();
+  public abstract DeviceClient getDeviceManager();
 }

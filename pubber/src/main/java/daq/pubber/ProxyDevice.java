@@ -4,8 +4,8 @@ import static com.google.udmi.util.GeneralUtils.deepCopy;
 import static com.google.udmi.util.GeneralUtils.friendlyStackTrace;
 import static java.lang.String.format;
 
-import daq.pubber.client.AbstractDeviceManager;
 import daq.pubber.client.AbstractProxyDevice;
+import daq.pubber.client.DeviceClient;
 import java.util.concurrent.atomic.AtomicBoolean;
 import udmi.schema.Config;
 import udmi.schema.Metadata;
@@ -81,7 +81,7 @@ public class ProxyDevice extends AbstractProxyDevice {
   }
 
   @Override
-  public AbstractDeviceManager getDeviceManager() {
+  public DeviceClient getDeviceManager() {
     return deviceManager;
   }
 }
