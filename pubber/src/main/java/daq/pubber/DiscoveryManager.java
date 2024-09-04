@@ -47,7 +47,7 @@ import udmi.schema.SystemDiscoveryData;
 /**
  * Manager wrapper for discovery functionality in pubber.
  */
-public class DiscoveryManager extends AbstractDiscoveryManager {
+public class DiscoveryManager extends ManagerBase implements AbstractDiscoveryManager {
 
   public static final int SCAN_DURATION_SEC = 10;
 
@@ -69,7 +69,12 @@ public class DiscoveryManager extends AbstractDiscoveryManager {
     });
   }
 
-  protected void updateDiscoveryEnumeration(DiscoveryConfig config) {
+  /**
+   * Updates discovery enumeration.
+   *
+   * @param config Discovery Configuration.
+   */
+  public void updateDiscoveryEnumeration(DiscoveryConfig config) {
     Date enumerationGeneration = config.generation;
     if (enumerationGeneration == null) {
       discoveryState.generation = null;
@@ -90,9 +95,17 @@ public class DiscoveryManager extends AbstractDiscoveryManager {
     host.publish(discoveryEvent);
   }
 
+  public void updateState() {
+    updateState(ofNullable((Object) getDiscoveryState()).orElse(DiscoveryState.class));
+  }
 
-
-  protected void startDiscoveryScan(String family, Date scanGeneration) {
+  /**
+   * Starts a discovery scan.
+   *
+   * @param family Discovery scan family.
+   * @param scanGeneration Scan generation.
+   */
+  public void startDiscoveryScan(String family, Date scanGeneration) {
     info("Discovery scan starting " + family + " as " + isoConvert(scanGeneration));
     Date stopTime = Date.from(scanGeneration.toInstant().plusSeconds(SCAN_DURATION_SEC));
     final FamilyDiscoveryState familyDiscoveryState = ensureFamilyDiscoveryState(family);
@@ -125,21 +138,6 @@ public class DiscoveryManager extends AbstractDiscoveryManager {
     return host.getLocalnetProvider(family);
   }
 
-  private FamilyDiscovery eventForTarget(Map.Entry<String, FamilyLocalnetModel> target) {
-    FamilyDiscovery event = new FamilyDiscovery();
-    event.addr = target.getValue().addr;
-    return event;
-  }
-
-  private FamilyLocalnetModel getFamilyLocalnetModel(String family,
-      Metadata targetMetadata) {
-    try {
-      return targetMetadata.localnet.families.get(family);
-    } catch (Exception e) {
-      return null;
-    }
-  }
-
   private void discoveryScanComplete(String family, Date scanGeneration) {
     try {
       FamilyDiscoveryState familyDiscoveryState = ensureFamilyDiscoveryState(family);
@@ -156,12 +154,8 @@ public class DiscoveryManager extends AbstractDiscoveryManager {
   }
 
   @Override
-  protected Date getDeviceStartTime() {
+  public Date getDeviceStartTime() {
     return DEVICE_START_TIME;
-  }
-
-  private <T> T ifTrue(Boolean condition, Supplier<T> supplier) {
-    return isGetTrue(() -> condition) ? supplier.get() : null;
   }
 
   private Map<String, PointDiscovery> enumeratePoints(String deviceId) {
@@ -208,22 +202,22 @@ public class DiscoveryManager extends AbstractDiscoveryManager {
   }
 
   @Override
-  protected DiscoveryState getDiscoveryState() {
+  public DiscoveryState getDiscoveryState() {
     return discoveryState;
   }
 
   @Override
-  protected void setDiscoveryState(DiscoveryState discoveryState) {
+  public void setDiscoveryState(DiscoveryState discoveryState) {
     this.discoveryState = discoveryState;
   }
 
   @Override
-  protected DiscoveryConfig getDiscoveryConfig() {
+  public DiscoveryConfig getDiscoveryConfig() {
     return discoveryConfig;
   }
 
   @Override
-  protected void setDiscoveryConfig(DiscoveryConfig discoveryConfig) {
+  public void setDiscoveryConfig(DiscoveryConfig discoveryConfig) {
     this.discoveryConfig = discoveryConfig;
   }
 }

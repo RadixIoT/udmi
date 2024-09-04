@@ -47,7 +47,7 @@ public abstract class ManagerBase {
     host.update(state);
   }
 
-  protected ScheduledFuture<?> scheduleFuture(Date futureTime, Runnable futureTask) {
+  public ScheduledFuture<?> scheduleFuture(Date futureTime, Runnable futureTask) {
     if (executor.isShutdown() || executor.isTerminated()) {
       throw new RuntimeException("Executor shutdown/terminated, not scheduling");
     }

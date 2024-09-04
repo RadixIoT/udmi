@@ -18,10 +18,12 @@ import com.google.common.collect.ImmutableMap;
 import com.google.udmi.util.SiteModel;
 import daq.pubber.ManagerBase;
 import daq.pubber.ManagerHost;
+import daq.pubber.ManagerLog;
 import java.time.Instant;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ScheduledFuture;
 import java.util.function.Supplier;
 import udmi.schema.Depths;
 import udmi.schema.DiscoveryConfig;
@@ -30,7 +32,7 @@ import udmi.schema.FamilyDiscoveryConfig;
 import udmi.schema.FamilyDiscoveryState;
 import udmi.schema.PubberConfiguration;
 
-public abstract class AbstractDiscoveryManager extends ManagerBase {
+public interface AbstractDiscoveryManager extends ManagerLog {
 
 
   private static boolean shouldEnumerateTo(Depths.Depth depth) {
@@ -39,22 +41,13 @@ public abstract class AbstractDiscoveryManager extends ManagerBase {
       case ENTRIES, DETAILS -> true;
     });
   }
-  /**
-   * New instance.
-   *
-   * @param host
-   * @param configuration
-   */
-  public AbstractDiscoveryManager(ManagerHost host,
-      PubberConfiguration configuration) {
-    super(host, configuration);
-  }
 
-  protected  <K, V> Map<K, V> maybeEnumerate(Depths.Depth depth, Supplier<Map<K, V>> supplier) {
+
+  default  <K, V> Map<K, V> maybeEnumerate(Depths.Depth depth, Supplier<Map<K, V>> supplier) {
     return ifTrueGet(shouldEnumerateTo(depth), supplier);
   }
 
-  protected void updateDiscoveryScan(Map<String, FamilyDiscoveryConfig> raw) {
+  default void updateDiscoveryScan(Map<String, FamilyDiscoveryConfig> raw) {
     Map<String, FamilyDiscoveryConfig> families = ofNullable(raw).orElse(Map.of());
     ifNullThen(getDiscoveryState().families, () -> getDiscoveryState().families = new HashMap<>());
 
@@ -67,7 +60,7 @@ public abstract class AbstractDiscoveryManager extends ManagerBase {
     }
   }
 
-  protected void scheduleDiscoveryScan(String family) {
+  default void scheduleDiscoveryScan(String family) {
     FamilyDiscoveryConfig familyDiscoveryConfig = getFamilyDiscoveryConfig(family);
     Date rawGeneration = familyDiscoveryConfig.generation;
     int interval = getScanInterval(family);
@@ -104,16 +97,17 @@ public abstract class AbstractDiscoveryManager extends ManagerBase {
     scheduleFuture(startGeneration, () -> checkDiscoveryScan(family, startGeneration));
   }
 
-  protected FamilyDiscoveryConfig getFamilyDiscoveryConfig(String family) {
+
+  default FamilyDiscoveryConfig getFamilyDiscoveryConfig(String family) {
     return getDiscoveryConfig().families.get(family);
   }
 
-  protected void removeDiscoveryScan(String family) {
+  default void removeDiscoveryScan(String family) {
     FamilyDiscoveryState removed = getDiscoveryState().families.remove(family);
     ifNotNullThen(removed, was -> cancelDiscoveryScan(family, was.generation, STOPPED));
   }
 
-  protected void cancelDiscoveryScan(String family, Date configGeneration, FamilyDiscoveryState.Phase phase) {
+  default void cancelDiscoveryScan(String family, Date configGeneration, FamilyDiscoveryState.Phase phase) {
     FamilyDiscoveryState familyDiscoveryState = getFamilyDiscoveryState(family);
     info(format("Discovery scan %s phase %s as %s", family, phase, isoConvert(configGeneration)));
     familyDiscoveryState.phase = phase;
@@ -125,7 +119,7 @@ public abstract class AbstractDiscoveryManager extends ManagerBase {
     return getDiscoveryState().families.get(family);
   }
 
-  protected FamilyDiscoveryState ensureFamilyDiscoveryState(String family) {
+  default FamilyDiscoveryState ensureFamilyDiscoveryState(String family) {
     if (getDiscoveryState().families == null) {
       // If there is no need for family state, then return a floating bucket for results.
       return new FamilyDiscoveryState();
@@ -134,7 +128,7 @@ public abstract class AbstractDiscoveryManager extends ManagerBase {
         family, key -> new FamilyDiscoveryState());
   }
 
-  protected void checkDiscoveryScan(String family, Date scanGeneration) {
+  default void checkDiscoveryScan(String family, Date scanGeneration) {
     try {
       FamilyDiscoveryState familyDiscoveryState = ensureFamilyDiscoveryState(family);
       ifTrueThen(familyDiscoveryState.phase == PENDING,
@@ -144,14 +138,11 @@ public abstract class AbstractDiscoveryManager extends ManagerBase {
     }
   }
 
-  protected void updateState() {
-    updateState(ofNullable((Object) getDiscoveryState()).orElse(DiscoveryState.class));
-  }
-
+  void updateState();
   /**
    * Update the discovery config.
    */
-  public void updateConfig(DiscoveryConfig discovery) {
+  default void updateConfig(DiscoveryConfig discovery) {
     setDiscoveryConfig(discovery);
     if (discovery == null) {
       setDiscoveryState(null);
@@ -166,25 +157,27 @@ public abstract class AbstractDiscoveryManager extends ManagerBase {
     updateState();
   }
 
-  protected int getScanInterval(String family) {
+  default int getScanInterval(String family) {
     return ofNullable(
         catchToNull(() -> getFamilyDiscoveryConfig(family).scan_interval_sec)).orElse(0);
   }
 
-  protected abstract Date getDeviceStartTime();
+  Date getDeviceStartTime();
 
-  public abstract void setSiteModel(SiteModel siteModel);
+  void setSiteModel(SiteModel siteModel);
 
-  protected abstract DiscoveryState getDiscoveryState();
+  DiscoveryState getDiscoveryState();
 
-  protected abstract void setDiscoveryState(DiscoveryState discoveryState);
+  void setDiscoveryState(DiscoveryState discoveryState);
 
-  protected abstract DiscoveryConfig getDiscoveryConfig();
+  DiscoveryConfig getDiscoveryConfig();
 
-  protected abstract void setDiscoveryConfig(DiscoveryConfig discoveryConfig);
+  void setDiscoveryConfig(DiscoveryConfig discoveryConfig);
 
-  protected abstract void startDiscoveryScan(String family, Date scanGeneration);
+  ScheduledFuture<?> scheduleFuture(Date startGeneration, Runnable runnable);
 
-  protected abstract void updateDiscoveryEnumeration(DiscoveryConfig config);
+  void startDiscoveryScan(String family, Date scanGeneration);
+
+  void updateDiscoveryEnumeration(DiscoveryConfig config);
 
 }
