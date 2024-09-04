@@ -1,6 +1,12 @@
 package daq.pubber;
 
 import com.google.udmi.util.SiteModel;
+import daq.pubber.client.AbstractDeviceManager;
+import daq.pubber.client.AbstractDiscoveryManager;
+import daq.pubber.client.AbstractGatewayManager;
+import daq.pubber.client.AbstractLocalnetManager;
+import daq.pubber.client.AbstractPointsetManager;
+import daq.pubber.client.AbstractSystemManager;
 import java.util.Map;
 import udmi.schema.Config;
 import udmi.schema.DevicePersistent;
@@ -14,13 +20,13 @@ import udmi.schema.PubberConfiguration;
 /**
  * Uber-manager for a complete device.
  */
-public class DeviceManager extends ManagerBase {
+public class DeviceManager extends ManagerBase implements AbstractDeviceManager {
 
-  private final PointsetManager pointsetManager;
-  private final SystemManager systemManager;
-  private final LocalnetManager localnetManager;
-  private final GatewayManager gatewayManager;
-  private final DiscoveryManager discoveryManager;
+  private final AbstractPointsetManager pointsetManager;
+  private final AbstractSystemManager systemManager;
+  private final AbstractLocalnetManager localnetManager;
+  private final AbstractGatewayManager gatewayManager;
+  private final AbstractDiscoveryManager discoveryManager;
 
 
   /**
@@ -87,7 +93,7 @@ public class DeviceManager extends ManagerBase {
    * Publish log message for target device.
    */
   public void publishLogMessage(Entry logEntry, String targetId) {
-    if (deviceId.equals(targetId)) {
+    if (getDeviceId().equals(targetId)) {
       systemManager.publishLogMessage(logEntry);
     } else {
       gatewayManager.publishLogMessage(logEntry, targetId);
@@ -98,15 +104,29 @@ public class DeviceManager extends ManagerBase {
     systemManager.cloudLog(message, level, detail);
   }
 
-  /**
-   * Shutdown everything, including sub-managers.
-   */
   @Override
-  public void shutdown() {
-    systemManager.shutdown();
-    pointsetManager.shutdown();
-    localnetManager.shutdown();
-    gatewayManager.shutdown();
+  public AbstractPointsetManager getPointsetManager() {
+    return pointsetManager;
+  }
+
+  @Override
+  public AbstractSystemManager getSystemManager() {
+    return systemManager;
+  }
+
+  @Override
+  public AbstractLocalnetManager getLocalnetManager() {
+    return localnetManager;
+  }
+
+  @Override
+  public AbstractGatewayManager getGatewayManager() {
+    return gatewayManager;
+  }
+
+  @Override
+  public AbstractDiscoveryManager getDiscoveryManager() {
+    return discoveryManager;
   }
 
   /**

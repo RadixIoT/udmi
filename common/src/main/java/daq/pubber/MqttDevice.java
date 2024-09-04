@@ -13,7 +13,7 @@ public class MqttDevice {
 
   public static final String TEST_PROJECT = "test-project";
   static final String ATTACH_TOPIC = "attach";
-  static final String CONFIG_TOPIC = "config";
+  public static final String CONFIG_TOPIC = "config";
   static final String ERRORS_TOPIC = "errors";
   static final String EVENTS_TOPIC = "events";
   static final String STATE_TOPIC = "state";

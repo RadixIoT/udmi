@@ -13,6 +13,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import udmi.schema.PointsetConfig;
 import udmi.schema.PubberConfiguration;
 import udmi.schema.PubberOptions;
 
@@ -29,13 +30,13 @@ public abstract class ManagerBase {
   protected final ManagerHost host;
   private final ScheduledExecutorService executor = new CatchingScheduledThreadPoolExecutor(1);
   final String deviceId;
-  final PubberConfiguration config;
+  protected final PubberConfiguration config;
   protected ScheduledFuture<?> periodicSender;
 
   /**
    * New instance.
    */
-  public ManagerBase(ManagerHost host, PubberConfiguration configuration) {
+  protected ManagerBase(ManagerHost host, PubberConfiguration configuration) {
     config = configuration;
     options = configuration.options;
     deviceId = requireNonNull(configuration.deviceId, "device id not defined");
@@ -104,7 +105,7 @@ public abstract class ManagerBase {
     }
   }
 
-  protected void periodicUpdate() {
+  public void periodicUpdate() {
     throw new IllegalStateException("No periodic update handler defined");
   }
 
@@ -143,12 +144,17 @@ public abstract class ManagerBase {
     }
   }
 
-  protected void stop() {
+  public void stop() {
     cancelPeriodicSend();
   }
 
-  protected void shutdown() {
+  public void shutdown() {
     cancelPeriodicSend();
     stopExecutor();
   }
+
+  public String getDeviceId() {
+    return deviceId;
+  }
+
 }
