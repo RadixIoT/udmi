@@ -5,6 +5,8 @@ import static java.util.stream.Collectors.toMap;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.udmi.util.SiteModel;
+import daq.pubber.client.AbstractDeviceManager;
+import daq.pubber.client.AbstractLocalnetManager;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -17,7 +19,7 @@ import udmi.schema.PubberConfiguration;
 /**
  * Container class for dealing with the localnet subblock of UDMI.
  */
-public class LocalnetManager extends ManagerBase implements ManagerHost {
+public class LocalnetManager extends ManagerBase implements AbstractLocalnetManager, ManagerHost {
 
   private static final Map<String, Class<? extends FamilyProvider>> LOCALNET_PROVIDERS =
       ImmutableMap.of(
@@ -50,19 +52,13 @@ public class LocalnetManager extends ManagerBase implements ManagerHost {
     }
   }
 
-  Map<String, FamilyDiscovery> enumerateFamilies() {
-    return localnetState.families.keySet().stream()
-        .collect(toMap(key -> key, this::makeFamilyDiscovery));
-  }
-
-  private FamilyDiscovery makeFamilyDiscovery(String key) {
-    FamilyDiscovery familyDiscovery = new FamilyDiscovery();
-    familyDiscovery.addr = localnetState.families.get(key).addr;
-    return familyDiscovery;
-  }
-
   public FamilyProvider getLocalnetProvider(String family) {
     return localnetProviders.get(family);
+  }
+
+  @Override
+  public LocalnetState getLocalnetState() {
+    return this.localnetState;
   }
 
   @Override
@@ -75,7 +71,7 @@ public class LocalnetManager extends ManagerBase implements ManagerHost {
     updateState();
   }
 
-  private void updateState() {
+  public void updateState() {
     updateState(ifNotNullGet(localnetConfig, c -> localnetState, LocalnetState.class));
   }
 
@@ -88,8 +84,13 @@ public class LocalnetManager extends ManagerBase implements ManagerHost {
     ((VendorProvider) localnetProviders.get(ProtocolFamily.VENDOR)).setSiteModel(siteModel);
   }
 
-  public void updateConfig(LocalnetConfig localnet) {
-    localnetConfig = localnet;
-    updateState();
+  @Override
+  public LocalnetConfig getLocalnetConfig() {
+    return localnetConfig;
+  }
+
+  @Override
+  public void setLocalnetConfig(LocalnetConfig localnetConfig) {
+    this.localnetConfig = localnetConfig;
   }
 }
