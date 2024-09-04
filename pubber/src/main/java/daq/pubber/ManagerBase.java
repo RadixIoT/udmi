@@ -13,7 +13,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import udmi.schema.PointsetConfig;
 import udmi.schema.PubberConfiguration;
 import udmi.schema.PubberOptions;
 
@@ -47,6 +46,13 @@ public abstract class ManagerBase {
     host.update(state);
   }
 
+  /**
+   * Schedule a future for the futureTask parameter.
+   *
+   * @param futureTime Time to schedule.
+   * @param futureTask Task to schedule.
+   * @return ScheduledFuture.
+   */
   public ScheduledFuture<?> scheduleFuture(Date futureTime, Runnable futureTask) {
     if (executor.isShutdown() || executor.isTerminated()) {
       throw new RuntimeException("Executor shutdown/terminated, not scheduling");

@@ -7,6 +7,9 @@ import udmi.schema.Level;
 import udmi.schema.Metadata;
 import udmi.schema.Operation.SystemMode;
 
+/**
+ * Device client.
+ */
 public interface DeviceClient {
   
   PointsetClient getPointsetManager();

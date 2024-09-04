@@ -17,11 +17,17 @@ import udmi.schema.SystemConfig;
 import udmi.schema.SystemEvents;
 import udmi.schema.SystemState;
 
+/**
+ * System client.
+ */
 public interface SystemClient {
 
   List<Entry> getLogentries();
+
   boolean getPublishingLog();
+
   int getSystemEventCount();
+
   SystemConfig getSystemConfig();
 
 
@@ -29,6 +35,17 @@ public interface SystemClient {
 
   void localLog(String message, Level trace, String timestamp, String detail);
 
+  /**
+   * Local log.
+   *
+   * @param entry Log entry.
+   */
+  default void localLog(Entry entry) {
+    String message = format("Log %s%s %s %s %s%s", Level.fromValue(entry.level).name(),
+        shouldLogLevel(entry.level) ? "" : "*",
+        entry.category, entry.message, isoConvert(entry.timestamp), getTestingTag());
+    localLog(message, Level.fromValue(entry.level), isoConvert(entry.timestamp), null);
+  }
 
   void setHardwareSoftware(Metadata metadata);
 
@@ -59,6 +76,11 @@ public interface SystemClient {
 
   void updateConfig(SystemConfig system, Date timestamp);
 
+  /**
+   * Publish log message.
+   *
+   * @param report report.
+   */
   default void publishLogMessage(Entry report) {
     if (shouldLogLevel(report.level)) {
       getLogentries().add(report);
@@ -69,6 +91,11 @@ public interface SystemClient {
 
   void cloudLog(String message, Level level, String detail);
 
+  /**
+   * Get a testing tag.
+
+   * @return Tag string.
+   */
   default String getTestingTag() {
     SystemConfig config = getSystemConfig();
     return config == null || config.testing == null
@@ -76,15 +103,13 @@ public interface SystemClient {
         : format(" (%s)", config.testing.sequence_name);
   }
 
-  default void localLog(Entry entry) {
-    String message = format("Log %s%s %s %s %s%s", Level.fromValue(entry.level).name(),
-        shouldLogLevel(entry.level) ? "" : "*",
-        entry.category, entry.message, isoConvert(entry.timestamp), getTestingTag());
-    localLog(message, Level.fromValue(entry.level), isoConvert(entry.timestamp), null);
-  }
-
   /**
    * Log a message.
+   *
+   * @param logMessage Log message.
+   * @param level level.
+   * @param timestamp timestamp.
+   * @param detail detail.
    */
   void pubberLogMessage(String logMessage, Level level, String timestamp, String detail);
 
@@ -92,6 +117,9 @@ public interface SystemClient {
 
   void shutdown();
 
+  /**
+   * Extra system state with extra field.
+   */
   class ExtraSystemState extends SystemState {
 
     public String extraField;

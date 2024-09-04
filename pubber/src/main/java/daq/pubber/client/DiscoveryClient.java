@@ -28,6 +28,9 @@ import udmi.schema.DiscoveryState;
 import udmi.schema.FamilyDiscoveryConfig;
 import udmi.schema.FamilyDiscoveryState;
 
+/**
+ * Discovery client.
+ */
 public interface DiscoveryClient extends ManagerLog {
 
 
@@ -43,6 +46,11 @@ public interface DiscoveryClient extends ManagerLog {
     return ifTrueGet(shouldEnumerateTo(depth), supplier);
   }
 
+  /**
+   * Updates discovery scan.
+   *
+   * @param raw Map of String -> FamilyDiscoveryConfig.
+   */
   default void updateDiscoveryScan(Map<String, FamilyDiscoveryConfig> raw) {
     Map<String, FamilyDiscoveryConfig> families = ofNullable(raw).orElse(Map.of());
     ifNullThen(getDiscoveryState().families, () -> getDiscoveryState().families = new HashMap<>());
@@ -56,6 +64,11 @@ public interface DiscoveryClient extends ManagerLog {
     }
   }
 
+  /**
+   * Schedules a discovery scan.
+   *
+   * @param family Family string.
+   */
   default void scheduleDiscoveryScan(String family) {
     FamilyDiscoveryConfig familyDiscoveryConfig = getFamilyDiscoveryConfig(family);
     Date rawGeneration = familyDiscoveryConfig.generation;
@@ -103,7 +116,15 @@ public interface DiscoveryClient extends ManagerLog {
     ifNotNullThen(removed, was -> cancelDiscoveryScan(family, was.generation, STOPPED));
   }
 
-  default void cancelDiscoveryScan(String family, Date configGeneration, FamilyDiscoveryState.Phase phase) {
+  /**
+   * Cancels discovery scan.
+   *
+   * @param family family string.
+   * @param configGeneration Config generation.
+   * @param phase Family discovery phase.
+   */
+  default void cancelDiscoveryScan(String family, Date configGeneration,
+      FamilyDiscoveryState.Phase phase) {
     FamilyDiscoveryState familyDiscoveryState = getFamilyDiscoveryState(family);
     info(format("Discovery scan %s phase %s as %s", family, phase, isoConvert(configGeneration)));
     familyDiscoveryState.phase = phase;
@@ -115,6 +136,12 @@ public interface DiscoveryClient extends ManagerLog {
     return getDiscoveryState().families.get(family);
   }
 
+  /**
+   * Ensures family discovery state is set.
+   *
+   * @param family family string.
+   * @return Family discovery state.
+   */
   default FamilyDiscoveryState ensureFamilyDiscoveryState(String family) {
     if (getDiscoveryState().families == null) {
       // If there is no need for family state, then return a floating bucket for results.
@@ -124,6 +151,12 @@ public interface DiscoveryClient extends ManagerLog {
         family, key -> new FamilyDiscoveryState());
   }
 
+  /**
+   * Checks and scan for discovery.
+   *
+   * @param family family
+   * @param scanGeneration scan generation.
+   */
   default void checkDiscoveryScan(String family, Date scanGeneration) {
     try {
       FamilyDiscoveryState familyDiscoveryState = ensureFamilyDiscoveryState(family);
@@ -135,8 +168,11 @@ public interface DiscoveryClient extends ManagerLog {
   }
 
   void updateState();
+
   /**
    * Update the discovery config.
+   *
+   * @param discovery Discovery config.
    */
   default void updateConfig(DiscoveryConfig discovery) {
     setDiscoveryConfig(discovery);

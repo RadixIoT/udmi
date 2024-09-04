@@ -1,5 +1,8 @@
 package daq.pubber;
 
+/**
+ * Abstract common logging operations.
+ */
 public interface ManagerLog {
 
   void debug(String message);

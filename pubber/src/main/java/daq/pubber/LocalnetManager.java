@@ -20,7 +20,7 @@ import udmi.schema.PubberConfiguration;
 public class LocalnetManager extends ManagerBase implements LocalnetClient, ManagerHost {
 
   private static final Map<String, Class<? extends FamilyProvider>> LOCALNET_PROVIDERS =
-      ImmutableMap.of(
+      Map.of(
           ProtocolFamily.VENDOR, VendorProvider.class,
           ProtocolFamily.IPV_4, IpProvider.class,
           ProtocolFamily.IPV_6, IpProvider.class,
