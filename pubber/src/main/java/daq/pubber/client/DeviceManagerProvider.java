@@ -7,17 +7,20 @@ import udmi.schema.Level;
 import udmi.schema.Metadata;
 import udmi.schema.Operation.SystemMode;
 
-public interface AbstractDeviceManager {
+/**
+ * Device client.
+ */
+public interface DeviceManagerProvider {
   
-  AbstractPointsetManager getPointsetManager();
+  PointsetManagerProvider getPointsetManager();
 
-  AbstractSystemManager getSystemManager();
+  SystemManagerProvider getSystemManager();
 
-  AbstractLocalnetManager getLocalnetManager();
+  LocalnetManagerProvider getLocalnetManager();
 
-  AbstractGatewayManager getGatewayManager();
+  GatewayManagerProvider getGatewayManager();
 
-  AbstractDiscoveryManager getDiscoveryManager();
+  DiscoveryManagerProvider getDiscoveryManager();
 
   /**
    * Shutdown everything, including sub-managers.
