@@ -15,7 +15,7 @@ import udmi.schema.Metadata;
 /**
  * Gateway client.
  */
-public interface GatewayClient {
+public interface GatewayManagerProvider {
   
   Metadata getMetadata();
 

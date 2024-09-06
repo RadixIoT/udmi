@@ -31,7 +31,7 @@ import udmi.schema.FamilyDiscoveryState;
 /**
  * Discovery client.
  */
-public interface DiscoveryClient extends ManagerLog {
+public interface DiscoveryManagerProvider extends ManagerLog {
 
 
   private static boolean shouldEnumerateTo(Depths.Depth depth) {

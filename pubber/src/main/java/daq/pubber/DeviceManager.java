@@ -1,12 +1,12 @@
 package daq.pubber;
 
 import com.google.udmi.util.SiteModel;
-import daq.pubber.client.DeviceClient;
-import daq.pubber.client.DiscoveryClient;
-import daq.pubber.client.GatewayClient;
-import daq.pubber.client.LocalnetClient;
-import daq.pubber.client.PointsetClient;
-import daq.pubber.client.SystemClient;
+import daq.pubber.client.DeviceManagerProvider;
+import daq.pubber.client.DiscoveryManagerProvider;
+import daq.pubber.client.GatewayManagerProvider;
+import daq.pubber.client.LocalnetManagerProvider;
+import daq.pubber.client.PointsetManagerProvider;
+import daq.pubber.client.SystemManagerProvider;
 import java.util.Map;
 import udmi.schema.Config;
 import udmi.schema.DevicePersistent;
@@ -20,13 +20,13 @@ import udmi.schema.PubberConfiguration;
 /**
  * Uber-manager for a complete device.
  */
-public class DeviceManager extends ManagerBase implements DeviceClient {
+public class DeviceManager extends ManagerBase implements DeviceManagerProvider {
 
-  private final PointsetClient pointsetManager;
-  private final SystemClient systemManager;
-  private final LocalnetClient localnetManager;
-  private final GatewayClient gatewayManager;
-  private final DiscoveryClient discoveryManager;
+  private final PointsetManagerProvider pointsetManager;
+  private final SystemManagerProvider systemManager;
+  private final LocalnetManagerProvider localnetManager;
+  private final GatewayManagerProvider gatewayManager;
+  private final DiscoveryManagerProvider discoveryManager;
 
 
   /**
@@ -105,27 +105,27 @@ public class DeviceManager extends ManagerBase implements DeviceClient {
   }
 
   @Override
-  public PointsetClient getPointsetManager() {
+  public PointsetManagerProvider getPointsetManager() {
     return pointsetManager;
   }
 
   @Override
-  public SystemClient getSystemManager() {
+  public SystemManagerProvider getSystemManager() {
     return systemManager;
   }
 
   @Override
-  public LocalnetClient getLocalnetManager() {
+  public LocalnetManagerProvider getLocalnetManager() {
     return localnetManager;
   }
 
   @Override
-  public GatewayClient getGatewayManager() {
+  public GatewayManagerProvider getGatewayManager() {
     return gatewayManager;
   }
 
   @Override
-  public DiscoveryClient getDiscoveryManager() {
+  public DiscoveryManagerProvider getDiscoveryManager() {
     return discoveryManager;
   }
 

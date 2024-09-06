@@ -20,7 +20,7 @@ import udmi.schema.SystemState;
 /**
  * System client.
  */
-public interface SystemClient {
+public interface SystemManagerProvider {
 
   List<Entry> getLogentries();
 

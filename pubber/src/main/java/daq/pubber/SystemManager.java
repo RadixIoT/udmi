@@ -17,7 +17,7 @@ import static java.util.Optional.ofNullable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.udmi.util.CleanDateFormat;
-import daq.pubber.client.SystemClient;
+import daq.pubber.client.SystemManagerProvider;
 import java.io.File;
 import java.io.PrintStream;
 import java.time.Instant;
@@ -43,7 +43,7 @@ import udmi.schema.SystemEvents;
 /**
  * Support manager for system stuff.
  */
-public class SystemManager extends ManagerBase implements SystemClient {
+public class SystemManager extends ManagerBase implements SystemManagerProvider {
 
   public static final String PUBBER_LOG_CATEGORY = "device.log";
   public static final String PUBBER_LOG = "pubber.log";
@@ -155,7 +155,7 @@ public class SystemManager extends ManagerBase implements SystemClient {
   }
 
   @Override
-  public SystemClient.ExtraSystemState getSystemState() {
+  public SystemManagerProvider.ExtraSystemState getSystemState() {
     return this.systemState;
   }
 

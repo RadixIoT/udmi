@@ -17,7 +17,7 @@ import udmi.schema.PointsetState;
 /**
  * Pointset client.
  */
-public interface PointsetClient {
+public interface PointsetManagerProvider {
 
   ExtraPointsetEvent getPointsetEvent();
 

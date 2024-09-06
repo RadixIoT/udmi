@@ -3,9 +3,8 @@ package daq.pubber;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static java.util.stream.Collectors.toMap;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.udmi.util.SiteModel;
-import daq.pubber.client.LocalnetClient;
+import daq.pubber.client.LocalnetManagerProvider;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -17,7 +16,7 @@ import udmi.schema.PubberConfiguration;
 /**
  * Container class for dealing with the localnet subblock of UDMI.
  */
-public class LocalnetManager extends ManagerBase implements LocalnetClient, ManagerHost {
+public class LocalnetManager extends ManagerBase implements LocalnetManagerProvider, ManagerHost {
 
   private static final Map<String, Class<? extends FamilyProvider>> LOCALNET_PROVIDERS =
       Map.of(

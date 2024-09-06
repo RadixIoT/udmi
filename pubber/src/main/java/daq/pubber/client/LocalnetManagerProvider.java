@@ -13,7 +13,7 @@ import udmi.schema.LocalnetState;
 /**
  * Localnet client.
  */
-public interface LocalnetClient {
+public interface LocalnetManagerProvider {
 
   LocalnetConfig getLocalnetConfig();
 

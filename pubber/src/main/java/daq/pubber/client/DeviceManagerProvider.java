@@ -10,17 +10,17 @@ import udmi.schema.Operation.SystemMode;
 /**
  * Device client.
  */
-public interface DeviceClient {
+public interface DeviceManagerProvider {
   
-  PointsetClient getPointsetManager();
+  PointsetManagerProvider getPointsetManager();
 
-  SystemClient getSystemManager();
+  SystemManagerProvider getSystemManager();
 
-  LocalnetClient getLocalnetManager();
+  LocalnetManagerProvider getLocalnetManager();
 
-  GatewayClient getGatewayManager();
+  GatewayManagerProvider getGatewayManager();
 
-  DiscoveryClient getDiscoveryManager();
+  DiscoveryManagerProvider getDiscoveryManager();
 
   /**
    * Shutdown everything, including sub-managers.
