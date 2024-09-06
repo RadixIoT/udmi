@@ -1,12 +1,12 @@
 package daq.pubber;
 
 import com.google.udmi.util.SiteModel;
-import daq.pubber.client.AbstractDeviceManager;
-import daq.pubber.client.AbstractDiscoveryManager;
-import daq.pubber.client.AbstractGatewayManager;
-import daq.pubber.client.AbstractLocalnetManager;
-import daq.pubber.client.AbstractPointsetManager;
-import daq.pubber.client.AbstractSystemManager;
+import daq.pubber.client.DeviceManagerProvider;
+import daq.pubber.client.DiscoveryManagerProvider;
+import daq.pubber.client.GatewayManagerProvider;
+import daq.pubber.client.LocalnetManagerProvider;
+import daq.pubber.client.PointsetManagerProvider;
+import daq.pubber.client.SystemManagerProvider;
 import java.util.Map;
 import udmi.schema.Config;
 import udmi.schema.DevicePersistent;
@@ -20,13 +20,13 @@ import udmi.schema.PubberConfiguration;
 /**
  * Uber-manager for a complete device.
  */
-public class DeviceManager extends ManagerBase implements AbstractDeviceManager {
+public class DeviceManager extends ManagerBase implements DeviceManagerProvider {
 
-  private final AbstractPointsetManager pointsetManager;
-  private final AbstractSystemManager systemManager;
-  private final AbstractLocalnetManager localnetManager;
-  private final AbstractGatewayManager gatewayManager;
-  private final AbstractDiscoveryManager discoveryManager;
+  private final PointsetManagerProvider pointsetManager;
+  private final SystemManagerProvider systemManager;
+  private final LocalnetManagerProvider localnetManager;
+  private final GatewayManagerProvider gatewayManager;
+  private final DiscoveryManagerProvider discoveryManager;
 
 
   /**
@@ -105,27 +105,27 @@ public class DeviceManager extends ManagerBase implements AbstractDeviceManager 
   }
 
   @Override
-  public AbstractPointsetManager getPointsetManager() {
+  public PointsetManagerProvider getPointsetManager() {
     return pointsetManager;
   }
 
   @Override
-  public AbstractSystemManager getSystemManager() {
+  public SystemManagerProvider getSystemManager() {
     return systemManager;
   }
 
   @Override
-  public AbstractLocalnetManager getLocalnetManager() {
+  public LocalnetManagerProvider getLocalnetManager() {
     return localnetManager;
   }
 
   @Override
-  public AbstractGatewayManager getGatewayManager() {
+  public GatewayManagerProvider getGatewayManager() {
     return gatewayManager;
   }
 
   @Override
-  public AbstractDiscoveryManager getDiscoveryManager() {
+  public DiscoveryManagerProvider getDiscoveryManager() {
     return discoveryManager;
   }
 
@@ -147,7 +147,7 @@ public class DeviceManager extends ManagerBase implements AbstractDeviceManager 
   /**
    * Set the site model.
    */
-  public void setSiteModel(SiteModel siteModel) {
+  protected void setSiteModel(SiteModel siteModel) {
     discoveryManager.setSiteModel(siteModel);
     gatewayManager.setSiteModel(siteModel);
     localnetManager.setSiteModel(siteModel);

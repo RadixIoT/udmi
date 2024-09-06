@@ -12,8 +12,7 @@ import static java.util.Optional.ofNullable;
 import static udmi.schema.Category.GATEWAY_PROXY_TARGET;
 
 import com.google.udmi.util.SiteModel;
-import daq.pubber.client.AbstractGatewayManager;
-import daq.pubber.client.AbstractProxyDevice;
+import daq.pubber.client.GatewayManagerProvider;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,11 +31,11 @@ import udmi.schema.PubberConfiguration;
 /**
  * Manager for UDMI gateway functionality.
  */
-public class GatewayManager extends ManagerBase implements AbstractGatewayManager {
+public class GatewayManager extends ManagerBase implements GatewayManagerProvider {
 
   private static final String EXTRA_PROXY_DEVICE = "XXX-1";
   private static final String EXTRA_PROXY_POINT = "xxx_conflagration";
-  private Map<String, AbstractProxyDevice> proxyDevices;
+  private Map<String, ProxyDevice> proxyDevices;
   private SiteModel siteModel;
   private Metadata metadata;
   private GatewayState gatewayState;
@@ -52,12 +51,12 @@ public class GatewayManager extends ManagerBase implements AbstractGatewayManage
    * @return A map where each key-value pair represents a device ID and its corresponding proxy
    * @throws NoSuchElementException if no first element exists in the stream
    */
-  public Map<String, AbstractProxyDevice> createProxyDevices(List<String> proxyIds) {
+  public Map<String, ProxyDevice> createProxyDevices(List<String> proxyIds) {
     if (proxyIds == null) {
       return Map.of();
     }
 
-    Map<String, AbstractProxyDevice> devices = new HashMap<>();
+    Map<String, ProxyDevice> devices = new HashMap<>();
     if (!proxyIds.isEmpty()) {
       String firstId = proxyIds.stream().sorted().findFirst().orElseThrow();
       String noProxyId = ifTrueGet(isTrue(options.noProxy), () -> firstId);
@@ -80,7 +79,7 @@ public class GatewayManager extends ManagerBase implements AbstractGatewayManage
   public void publishLogMessage(Entry logEntry, String targetId) {
     ifNotNullThen(proxyDevices, p -> p.values().forEach(pd -> {
       if (pd.getDeviceId().equals(targetId)) {
-        pd.getDeviceManager().publishLogMessage(logEntry, targetId);
+        pd.deviceManager.publishLogMessage(logEntry, targetId);
       }
     }));
   }
@@ -91,7 +90,7 @@ public class GatewayManager extends ManagerBase implements AbstractGatewayManage
   }
 
   public void activate() {
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(AbstractProxyDevice::activate));
+    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDevice::activate));
   }
 
   ProxyDevice makeExtraDevice() {
@@ -181,13 +180,13 @@ public class GatewayManager extends ManagerBase implements AbstractGatewayManage
   @Override
   public void shutdown() {
     super.shutdown();
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(AbstractProxyDevice::shutdown));
+    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDevice::shutdown));
   }
 
   @Override
   public void stop() {
     super.stop();
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(AbstractProxyDevice::stop));
+    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDevice::stop));
   }
 
   public void setSiteModel(SiteModel siteModel) {
@@ -214,7 +213,7 @@ public class GatewayManager extends ManagerBase implements AbstractGatewayManage
   }
 
   @Override
-  public Map<String, AbstractProxyDevice> getProxyDevices() {
+  public Map<String, ProxyDevice> getProxyDevices() {
     return proxyDevices;
   }
 }
