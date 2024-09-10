@@ -53,6 +53,7 @@ import daq.pubber.MqttPublisher.InjectedState;
 import daq.pubber.MqttPublisher.PublisherException;
 import daq.pubber.PubSubClient.Bundle;
 import daq.pubber.client.PointsetManagerProvider.ExtraPointsetEvent;
+import daq.pubber.client.PubberHost;
 import daq.pubber.client.SystemManagerProvider.ExtraSystemState;
 import java.io.File;
 import java.io.PrintStream;
@@ -109,18 +110,15 @@ import udmi.schema.SystemState;
 /**
  * IoT Core UDMI Device Emulator.
  */
-public class Pubber extends ManagerBase implements ManagerHost {
+public class Pubber extends ManagerBase implements PubberHost {
 
   public static final String PUBBER_OUT = "pubber/out";
   public static final String PERSISTENT_STORE_FILE = "persistent_data.json";
   public static final String PERSISTENT_TMP_FORMAT = "/tmp/pubber_%s_" + PERSISTENT_STORE_FILE;
-  public static final String DATA_URL_JSON_BASE64 = "data:application/json;base64,";
   public static final String CA_CRT = "ca.crt";
-  static final String UDMI_VERSION = SchemaVersion.CURRENT.key();
   static final Logger LOG = LoggerFactory.getLogger(Pubber.class);
-  static final Date DEVICE_START_TIME = getRoundedStartTime();
+  static final Date DEVICE_START_TIME = PubberHost.getRoundedStartTime();
   static final int MESSAGE_REPORT_INTERVAL = 10;
-  private static final String BROKEN_VERSION = "1.4.";
   private static final String HOSTNAME = System.getenv("HOSTNAME");
   private static final int STATE_THROTTLE_MS = 2000;
   private static final String PUBSUB_SITE = "PubSub";
@@ -130,12 +128,12 @@ public class Pubber extends ManagerBase implements ManagerHost {
       new Builder<Class<?>, String>()
           .put(State.class, STATE_TOPIC)
           .put(ExtraSystemState.class, STATE_TOPIC) // Used for badState option
-          .put(SystemEvents.class, getEventsSuffix("system"))
-          .put(PointsetEvents.class, getEventsSuffix("pointset"))
-          .put(ExtraPointsetEvent.class, getEventsSuffix("pointset"))
-          .put(InjectedMessage.class, getEventsSuffix("racoon"))
+          .put(SystemEvents.class, PubberHost.getEventsSuffix("system"))
+          .put(PointsetEvents.class, PubberHost.getEventsSuffix("pointset"))
+          .put(ExtraPointsetEvent.class, PubberHost.getEventsSuffix("pointset"))
+          .put(InjectedMessage.class, PubberHost.getEventsSuffix("racoon"))
           .put(InjectedState.class, STATE_TOPIC)
-          .put(DiscoveryEvents.class, getEventsSuffix("discovery"))
+          .put(DiscoveryEvents.class, PubberHost.getEventsSuffix("discovery"))
           .build();
   private static final Map<String, String> INVALID_REPLACEMENTS = ImmutableMap.of(
       "events/blobset", "\"\"",
@@ -230,16 +228,6 @@ public class Pubber extends ManagerBase implements ManagerHost {
     return configuration;
   }
 
-  private static String getEventsSuffix(String suffixSuffix) {
-    return MqttDevice.EVENTS_TOPIC + "/" + suffixSuffix;
-  }
-
-  private static Date getRoundedStartTime() {
-    long timestamp = getNow().getTime();
-    // Remove ms so that rounded conversions preserve equality.
-    return new Date(timestamp - (timestamp % 1000));
-  }
-
   /**
    * Start a pubber instance with command line args.
    *
@@ -330,40 +318,13 @@ public class Pubber extends ManagerBase implements ManagerHost {
     return configuration;
   }
 
-  static String acquireBlobData(String url, String sha256) {
-    if (!url.startsWith(DATA_URL_JSON_BASE64)) {
-      throw new RuntimeException("URL encoding not supported: " + url);
-    }
-    byte[] dataBytes = Base64.getDecoder().decode(url.substring(DATA_URL_JSON_BASE64.length()));
-    String dataSha256 = GeneralUtils.sha256(dataBytes);
-    if (!dataSha256.equals(sha256)) {
-      throw new RuntimeException("Blob data hash mismatch");
-    }
-    return new String(dataBytes);
-  }
-
-  static void augmentDeviceMessage(Object message, Date now, boolean useBadVersion) {
-    try {
-      Field version = message.getClass().getField("version");
-      version.set(message, useBadVersion ? BROKEN_VERSION : UDMI_VERSION);
-      Field timestamp = message.getClass().getField("timestamp");
-      timestamp.set(message, now);
-    } catch (Throwable e) {
-      throw new RuntimeException("While augmenting device message", e);
-    }
-  }
-
-  static String getGatewayId(String targetId, PubberConfiguration configuration) {
-    return ofNullable(configuration.gatewayId).orElse(
-        targetId.equals(configuration.deviceId) ? null : configuration.deviceId);
-  }
-
   @Override
   public FamilyProvider getLocalnetProvider(String family) {
     return deviceManager.getLocalnetProvider(family);
   }
 
-  private void initializeDevice() {
+  @Override
+  public void initializeDevice() {
     deviceManager = new DeviceManager(this, config);
 
     if (config.sitePath != null) {
@@ -394,11 +355,8 @@ public class Pubber extends ManagerBase implements ManagerHost {
     markStateDirty();
   }
 
-  protected DevicePersistent newDevicePersistent() {
-    return new DevicePersistent();
-  }
-
-  protected void initializePersistentStore() {
+  @Override
+  public void initializePersistentStore() {
     checkState(persistentData == null, "persistent data already loaded");
     File persistentStore = getPersistentStore();
 
@@ -430,7 +388,8 @@ public class Pubber extends ManagerBase implements ManagerHost {
     writePersistentStore();
   }
 
-  private void writePersistentStore() {
+  @Override
+  public void writePersistentStore() {
     checkState(persistentData != null, "persistent data not defined");
     toJsonFile(getPersistentStore(), persistentData);
     warn("Updating persistent store:\n" + stringify(persistentData));
@@ -447,11 +406,9 @@ public class Pubber extends ManagerBase implements ManagerHost {
     markStateDirty();
   }
 
-  private void markStateDirty() {
-    markStateDirty(0);
-  }
 
-  private void markStateDirty(long delayMs) {
+  @Override
+  public void markStateDirty(long delayMs) {
     stateDirty.set(true);
     if (delayMs >= 0) {
       try {
@@ -677,7 +634,8 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
-  protected void startConnection(Function<String, Boolean> connectionDone) {
+  @Override
+  public void startConnection(Function<String, Boolean> connectionDone) {
     String nonce = String.valueOf(System.currentTimeMillis());
     warn(format("Starting connection %s with %d", nonce, retriesRemaining.get()));
     try {
@@ -761,7 +719,8 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
-  private void initializeMqtt() {
+  @Override
+  public void initializeMqtt() {
     checkNotNull(config.deviceId, "configuration deviceId not defined");
     if (siteModel != null && config.keyFile != null) {
       config.keyFile = siteModel.getDeviceKeyFile(config.deviceId);
@@ -785,7 +744,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
 
   private void registerMessageHandlers() {
     deviceTarget.registerHandler(CONFIG_TOPIC, this::configHandler, Config.class);
-    String gatewayId = getGatewayId(deviceId, config);
+    String gatewayId = PubberHost.getGatewayId(deviceId, config);
     if (isGatewayDevice) {
       // In this case, this is the gateway so register the appropriate error handler directly.
       deviceTarget.registerHandler(ERRORS_TOPIC, this::errorHandler, GatewayError.class);
@@ -801,7 +760,8 @@ public class Pubber extends ManagerBase implements ManagerHost {
     return new MqttDevice(proxyId, deviceTarget);
   }
 
-  private byte[] ensureKeyBytes() {
+  @Override
+  public byte[] ensureKeyBytes() {
     if (config.keyBytes == null) {
       checkNotNull(config.keyFile, "configuration keyFile not defined");
       info("Loading device key bytes from " + config.keyFile);
@@ -827,7 +787,8 @@ public class Pubber extends ManagerBase implements ManagerHost {
     publisherHandler("config", phase, e, targetId);
   }
 
-  private void publisherException(Exception toReport) {
+  @Override
+  public void publisherException(Exception toReport) {
     if (toReport instanceof PublisherException report) {
       publisherHandler(report.type, report.phase, report.getCause(), report.deviceId);
     } else if (toReport instanceof ConnectionClosedException) {
@@ -924,7 +885,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
   }
 
   private void gatewayHandler(Config gatewayConfig) {
-    warn("Ignoring configuration for gateway " + getGatewayId(deviceId, config));
+    warn("Ignoring configuration for gateway " + PubberHost.getGatewayId(deviceId, config));
   }
 
   private void errorHandler(GatewayError error) {
@@ -932,7 +893,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
   }
 
   void configPreprocess(String targetId, Config configMsg) {
-    String gatewayId = getGatewayId(targetId, config);
+    String gatewayId = PubberHost.getGatewayId(targetId, config);
     String suffix = ifNotNullGet(gatewayId, x -> "_" + targetId, "");
     String deviceType = ifNotNullGet(gatewayId, x -> "Proxy", "Device");
     info(format("%s %s config handler", deviceType, targetId));
@@ -1067,7 +1028,8 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
-  private void persistEndpoint(EndpointConfiguration endpoint) {
+  @Override
+  public void persistEndpoint(EndpointConfiguration endpoint) {
     notice("Persisting connection endpoint");
     persistentData.endpoint = endpoint;
     writePersistentStore();
@@ -1083,7 +1045,8 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
-  private void resetConnection(String targetEndpoint) {
+  @Override
+  public void resetConnection(String targetEndpoint) {
     try {
       config.endpoint = fromJsonString(targetEndpoint,
           EndpointConfiguration.class);
@@ -1127,7 +1090,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
       }
       BlobBlobsetConfig blobBlobsetConfig = deviceConfig.blobset.blobs.get(blobName);
       if (blobBlobsetConfig != null && BlobPhase.FINAL.equals(blobBlobsetConfig.phase)) {
-        return acquireBlobData(blobBlobsetConfig.url, blobBlobsetConfig.sha256);
+        return PubberHost.acquireBlobData(blobBlobsetConfig.url, blobBlobsetConfig.sha256);
       }
       return null;
     } catch (Exception e) {
@@ -1260,11 +1223,11 @@ public class Pubber extends ManagerBase implements ManagerHost {
       return;
     }
 
-    augmentDeviceMessage(message, getNow(), isTrue(options.badVersion));
+    PubberHost.augmentDeviceMessage(message, getNow(), isTrue(options.badVersion));
     Object downgraded = downgradeMessage(message);
     deviceTarget.publish(targetId, topicSuffix, downgraded, callback);
     String messageBase = topicSuffix.replace("/", "_");
-    String gatewayId = getGatewayId(targetId, config);
+    String gatewayId = PubberHost.getGatewayId(targetId, config);
     String suffix = ifNotNullGet(gatewayId, x -> "_" + targetId, "");
     File messageOut = new File(outDir, format("%s.json", traceTimestamp(messageBase + suffix)));
     try {
@@ -1279,7 +1242,8 @@ public class Pubber extends ManagerBase implements ManagerHost {
     return ifNotNullGet(targetSchema, messageDowngrader::downgrade, message);
   }
 
-  private String traceTimestamp(String messageBase) {
+  @Override
+  public String traceTimestamp(String messageBase) {
     int serial = MESSAGE_COUNTS.computeIfAbsent(messageBase, key -> new AtomicInteger())
         .incrementAndGet();
     String timestamp = getTimestamp().replace("Z", format(".%03dZ", serial));

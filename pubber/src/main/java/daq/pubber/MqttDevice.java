@@ -15,7 +15,7 @@ public class MqttDevice {
   static final String ATTACH_TOPIC = "attach";
   public static final String CONFIG_TOPIC = "config";
   static final String ERRORS_TOPIC = "errors";
-  static final String EVENTS_TOPIC = "events";
+  public static final String EVENTS_TOPIC = "events";
   static final String STATE_TOPIC = "state";
 
   private final String deviceId;
