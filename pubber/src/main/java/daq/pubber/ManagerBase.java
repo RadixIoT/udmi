@@ -94,13 +94,6 @@ public abstract class ManagerBase {
     host.error(message, null);
   }
 
-  /**
-   * Updates the interval for periodic updates based on the provided sample rate,
-   * ensuring it respects the minimum disabled interval.
-   *
-   * @param sampleRateSec The desired sample rate in seconds,
-   *                      or null to use the default report interval.
-   */
   public void updateInterval(Integer sampleRateSec) {
     int reportInterval = ofNullable(sampleRateSec).orElse(DEFAULT_REPORT_SEC);
     int intervalSec = ofNullable(options.fixedSampleRate).orElse(reportInterval);

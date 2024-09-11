@@ -649,9 +649,6 @@ public class MqttPublisher implements Publisher {
     }
   }
 
-  /**
-   * Represents a message with placeholders that need to be replaced.
-   */
   public static class InjectedMessage {
 
     private static final String REPLACE_MESSAGE_KEY = "REPLACE_MESSAGE_WITH";
@@ -665,9 +662,6 @@ public class MqttPublisher implements Publisher {
     public String REPLACE_TOPIC_WITH;
   }
 
-  /**
-   * Represents the state of an {@link InjectedMessage}.
-   */
   public static class InjectedState extends InjectedMessage {
 
   }

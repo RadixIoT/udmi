@@ -14,9 +14,9 @@ public class MqttDevice {
   public static final String TEST_PROJECT = "test-project";
   static final String ATTACH_TOPIC = "attach";
   public static final String CONFIG_TOPIC = "config";
-  static final String ERRORS_TOPIC = "errors";
+  public static final String ERRORS_TOPIC = "errors";
   public static final String EVENTS_TOPIC = "events";
-  static final String STATE_TOPIC = "state";
+  public static final String STATE_TOPIC = "state";
 
   private final String deviceId;
   private final Publisher publisher;
@@ -31,7 +31,7 @@ public class MqttDevice {
         prefix -> publisher.setDeviceTopicPrefix(deviceId, prefix));
   }
 
-  MqttDevice(String deviceId, MqttDevice target) {
+  public MqttDevice(String deviceId, MqttDevice target) {
     this.deviceId = deviceId;
     publisher = target.publisher;
     certManager = null;
