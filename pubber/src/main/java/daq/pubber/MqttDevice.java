@@ -31,6 +31,14 @@ public class MqttDevice {
         prefix -> publisher.setDeviceTopicPrefix(deviceId, prefix));
   }
 
+  /**
+   * Constructs a new MqttDevice with the specified device ID and copies the publisher from the
+   * given target device.
+   * The certificate manager is set to null for this device.
+   *
+   * @param deviceId the unique identifier for the device
+   * @param target   the MqttDevice to copy the publisher from
+   */
   public MqttDevice(String deviceId, MqttDevice target) {
     this.deviceId = deviceId;
     publisher = target.publisher;

@@ -105,10 +105,13 @@ public interface PubberHost extends ManagerHost {
   static final int DEFAULT_REPORT_SEC = 10;
 
   State getDeviceState();
+
   Config getDeviceConfig();
 
   DeviceManager getDeviceManager();
+
   MqttDevice getDeviceTarget();
+
   void setDeviceTarget(MqttDevice deviceTarget);
 
   boolean isGatewayDevice();
@@ -117,12 +120,28 @@ public interface PubberHost extends ManagerHost {
     return MqttDevice.EVENTS_TOPIC + "/" + suffixSuffix;
   }
 
+  /**
+   * Retrieves the start time of the current second,
+   * with milliseconds removed for precise comparison.
+   *
+   * @return A {@code Date} object representing the rounded start time.
+   */
   static Date getRoundedStartTime() {
     long timestamp = getNow().getTime();
     // Remove ms so that rounded conversions preserve equality.
     return new Date(timestamp - (timestamp % 1000));
   }
 
+  /**
+   * Acquires and validates blob data from a given URL encoded in Base64 format,
+   * checking its SHA-256 hash.
+   *
+   * @param url The URL to fetch the data from. Must start with {@code DATA_URL_JSON_BASE64}.
+   * @param sha256 The expected SHA-256 hash of the blob data.
+   * @return The decoded and validated blob data as a string.
+   * @throws RuntimeException if the URL encoding is not supported,
+   *                          or if the SHA-256 hash does not match.
+   */
   static String acquireBlobData(String url, String sha256) {
     if (!url.startsWith(DATA_URL_JSON_BASE64)) {
       throw new RuntimeException("URL encoding not supported: " + url);
@@ -135,6 +154,13 @@ public interface PubberHost extends ManagerHost {
     return new String(dataBytes);
   }
 
+  /**
+   * Augments a given {@code message} object with the current timestamp and version information.
+   *
+   * @param message The device message to be augmented.
+   * @param now The current date and time.
+   * @param useBadVersion A flag indicating whether to set the version to a bad or good version.
+   */
   static void augmentDeviceMessage(Object message, Date now, boolean useBadVersion) {
     try {
       Field version = message.getClass().getField("version");
@@ -158,6 +184,9 @@ public interface PubberHost extends ManagerHost {
   default void markStateDirty() {
     markStateDirty(0);
   }
+
+  void markStateDirty(long delayMs);
+
 
   @Override
   default void update(Object update) {
@@ -207,7 +236,14 @@ public interface PubberHost extends ManagerHost {
     publishDeviceMessage(targetId, message);
   }
 
-
+  /**
+   * Executes the provided {@code Runnable} and captures any exceptions that occur by
+   * calling {@link #error(String, Throwable)} with the action name and the caught exception.
+   *
+   * @param action The name of the action being performed.
+   * @param runnable The {@code Runnable}
+   *                 to execute within a try-catch block for exception handling.
+   */
   default void captureExceptions(String action, Runnable runnable) {
     try {
       runnable.run();
@@ -216,14 +252,23 @@ public interface PubberHost extends ManagerHost {
     }
   }
 
+  /**
+   * Disconnects the MQTT device target if it is not null. Closes and shuts down the MQTT publisher,
+   * then sets the device target to null.
+   */
   default void disconnectMqtt() {
     if (getDeviceTarget() != null) {
       captureExceptions("closing mqtt publisher", () -> getDeviceTarget().close());
-      captureExceptions("shutting down mqtt publisher executor", () -> getDeviceTarget().shutdown());
+      captureExceptions("shutting down mqtt publisher executor",
+          () -> getDeviceTarget().shutdown());
       setDeviceTarget(null);
     }
   }
 
+  /**
+   * Registers the necessary message handlers for device configuration and error handling based on
+   * whether the device is a gateway or a proxy device.
+   */
   default void registerMessageHandlers() {
     getDeviceTarget().registerHandler(CONFIG_TOPIC, this::configHandler, Config.class);
     String gatewayId = getGatewayId(getDeviceId(), getConfig());
@@ -243,7 +288,9 @@ public interface PubberHost extends ManagerHost {
     return new MqttDevice(proxyId, getDeviceTarget());
   }
 
-
+  /**
+   * Connects to the device target and initializes configuration latch.
+   */
   default void connect() {
     try {
       warn("Creating new config latch for " + getDeviceId());
@@ -264,6 +311,15 @@ public interface PubberHost extends ManagerHost {
     publisherHandler("config", phase, e, targetId);
   }
 
+  /**
+   * Handles the reception of a message with an optional error.
+   *
+   * @param type The type of the message being received.
+   * @param phase A string representing the current processing phase of the message.
+   * @param cause An optional Throwable that represents the error causing the failure,
+   *             or null if there is no error.
+   * @param targetId The ID of the target to which the log message should be published.
+   */
   default void publisherHandler(String type, String phase, Throwable cause, String targetId) {
     if (cause != null) {
       error("Error receiving message " + type, cause);
@@ -299,6 +355,10 @@ public interface PubberHost extends ManagerHost {
     publishAsynchronousState();
   }
 
+  /**
+   * Delays updating the next state by calculating a synthetic last state time that includes
+   * an optional delay.
+   */
   default void delayNextStateUpdate() {
     // Calculate a synthetic last state time that factors in the optional delay.
     long syntheticType = System.currentTimeMillis() - STATE_THROTTLE_MS + FORCED_STATE_TIME_MS;
@@ -310,6 +370,13 @@ public interface PubberHost extends ManagerHost {
 
   long getLastStateTimeMs();
 
+  /**
+   * Creates an {@link Entry} object from a given exception and category.
+   *
+   * @param category the category for the log entry
+   * @param e the exception from which to create the log entry; can be null
+   * @return a new {@link Entry} object based on the provided parameters
+   */
   default Entry entryFromException(String category, Throwable e) {
     boolean success = e == null;
     Entry entry = new Entry();
@@ -359,6 +426,12 @@ public interface PubberHost extends ManagerHost {
     warn(format("%s for %s: %s", error.error_type, error.device_id, error.description));
   }
 
+  /**
+   * Configures the preprocessing for a given target ID using the provided configuration message.
+   *
+   * @param targetId The unique identifier of the target to be configured.
+   * @param configMsg The configuration message to be processed.
+   */
   default void configPreprocess(String targetId, Config configMsg) {
     String gatewayId = getGatewayId(targetId, getConfig());
     String suffix = ifNotNullGet(gatewayId, x -> "_" + targetId, "");
@@ -398,9 +471,15 @@ public interface PubberHost extends ManagerHost {
   }
 
   void updateInterval(Integer defaultReportSec);
+
   Lock getStateLock();
 
   // TODO: Consider refactoring this to either return or change an instance variable, not both.
+  /**
+   * Extracts the endpoint configuration blob from the device configuration.
+   *
+   * @return The extracted {@link EndpointConfiguration}
+   */
   default EndpointConfiguration extractEndpointBlobConfig() {
     setExtractedEndpoint(null);
     if (getDeviceConfig().blobset == null) {
@@ -411,7 +490,8 @@ public interface PubberHost extends ManagerHost {
       setExtractedEndpoint(fromJsonString(iotConfig, EndpointConfiguration.class));
       if (getExtractedEndpoint() != null) {
         if (getDeviceConfig().blobset.blobs.containsKey(IOT_ENDPOINT_CONFIG.value())) {
-          BlobBlobsetConfig config = getDeviceConfig().blobset.blobs.get(IOT_ENDPOINT_CONFIG.value());
+          BlobBlobsetConfig config = getDeviceConfig()
+              .blobset.blobs.get(IOT_ENDPOINT_CONFIG.value());
           getExtractedEndpoint().generation = config.generation;
         }
       }
@@ -441,6 +521,10 @@ public interface PubberHost extends ManagerHost {
     markStateDirty();
   }
 
+  /**
+   * Attempts to redirect the endpoint based on configuration settings and handles redirection
+   * logic.
+   */
   default void maybeRedirectEndpoint() {
     String redirectRegistry = getConfig().options.redirectRegistry;
     String currentSignature = toJsonString(getConfig().endpoint);
@@ -523,7 +607,13 @@ public interface PubberHost extends ManagerHost {
     }
   }
 
-
+  /**
+   * Creates an {@link Entry} object with error details from the given exception and category.
+   *
+   * @param e       The exception whose message and stack trace will be recorded.
+   * @param category A string representing the category of the error.
+   * @return An {@link Entry} object containing the error details.
+   */
   default Entry exceptionStatus(Exception e, String category) {
     Entry entry = new Entry();
     entry.message = e.getMessage();
@@ -534,9 +624,20 @@ public interface PubberHost extends ManagerHost {
     return entry;
   }
 
+  /**
+   * Ensures the {@code blobset} and its {@code blobs} map are initialized in the device state,
+   * creating them if necessary.
+   * Returns the computed or newly created {@link BlobBlobsetState} for the given
+   * {@code iotEndpointConfig}.
+   *
+   * @param iotEndpointConfig The configuration for the IoT endpoint whose state blob
+   *                         needs to be ensured.
+   * @return The {@link BlobBlobsetState} associated with the provided configuration.
+   */
   default BlobBlobsetState ensureBlobsetState(SystemBlobsets iotEndpointConfig) {
     getDeviceState().blobset = ofNullable(getDeviceState().blobset).orElseGet(BlobsetState::new);
-    getDeviceState().blobset.blobs = ofNullable(getDeviceState().blobset.blobs).orElseGet(HashMap::new);
+    getDeviceState().blobset.blobs = ofNullable(getDeviceState().blobset.blobs)
+        .orElseGet(HashMap::new);
     return getDeviceState().blobset.blobs.computeIfAbsent(iotEndpointConfig.value(),
         key -> new BlobBlobsetState());
   }
@@ -546,6 +647,14 @@ public interface PubberHost extends ManagerHost {
     return SiteModel.getClientId(getConfig().iotProject, cloudRegion, forRegistry, getDeviceId());
   }
 
+  /**
+   * Extracts the configuration blob with the specified name, if it exists and is in the final
+   * phase.
+   *
+   * @param blobName The name of the blob to extract.
+   * @return The content of the blob as a string, or null if the blob does not exist or is not in
+   *         the final phase.
+   */
   default String extractConfigBlob(String blobName) {
     // TODO: Refactor to get any blob meta parameters.
     try {
@@ -569,6 +678,11 @@ public interface PubberHost extends ManagerHost {
     getDeviceManager().publishLogMessage(logEntry, targetId);
   }
 
+  /**
+   * Publishes the current state asynchronously, deferring if necessary to ensure that the state
+   * update does not occur too frequently.
+   *
+   */
   default void publishAsynchronousState() {
     if (getStateLock().tryLock()) {
       try {
@@ -588,6 +702,11 @@ public interface PubberHost extends ManagerHost {
     }
   }
 
+  /**
+   * Publishes the current state synchronously.
+   * This method locks the state before publishing it to ensure thread safety,
+   * and handles exceptions by wrapping them in a RuntimeException.
+   */
   default void publishSynchronousState() {
     try {
       getStateLock().lock();
@@ -603,6 +722,10 @@ public interface PubberHost extends ManagerHost {
     return getDeviceTarget() != null && getDeviceTarget().isActive();
   }
 
+  /**
+   * Publishes the current device state as a message to the publisher if the publisher is active.
+   * If the publisher is not active, it marks the state as dirty and returns without publishing.
+   */
   default void publishStateMessage() {
     if (!publisherActive()) {
       markStateDirty(-1);
@@ -615,8 +738,11 @@ public interface PubberHost extends ManagerHost {
     publishStateMessage(isTrue(getOptions().badState) ? getDeviceState().system : getDeviceState());
   }
 
-  AtomicBoolean getStateDirty();
-
+  /**
+   * Publishes the given state message to a designated location.
+  *
+   * @param stateToSend The state object to be published.
+   */
   default void publishStateMessage(Object stateToSend) {
     try {
       getStateLock().lock();
@@ -626,6 +752,13 @@ public interface PubberHost extends ManagerHost {
     }
   }
 
+  AtomicBoolean getStateDirty();
+
+  /**
+   * Publishes the current device state to a remote service.
+   *
+   * @param stateToSend The current device state to be published.
+   */
   default void publishStateMessageRaw(Object stateToSend) {
     if (getConfigLatch() == null || getConfigLatch().getCount() > 0) {
       warn("Dropping state update until config received...");
@@ -673,6 +806,14 @@ public interface PubberHost extends ManagerHost {
     publishDeviceMessage(targetId, message, null);
   }
 
+  /**
+   * Publishes a device message to the appropriate topic and handles squelching of state updates
+   * if configured.
+   *
+   * @param targetId The ID of the target device for the message.
+   * @param message The message object to be published.
+   * @param callback A callback function to be executed after the message is sent.
+   */
   default void publishDeviceMessage(String targetId, Object message, Runnable callback) {
     String topicSuffix = MESSAGE_TOPIC_SUFFIX_MAP.get(message.getClass());
     if (topicSuffix == null) {
@@ -696,7 +837,8 @@ public interface PubberHost extends ManagerHost {
     String messageBase = topicSuffix.replace("/", "_");
     String gatewayId = getGatewayId(targetId, getConfig());
     String suffix = ifNotNullGet(gatewayId, x -> "_" + targetId, "");
-    File messageOut = new File(getOutDir(), format("%s.json", traceTimestamp(messageBase + suffix)));
+    File messageOut = new File(getOutDir(),
+        format("%s.json", traceTimestamp(messageBase + suffix)));
     try {
       toJsonFile(messageOut, downgraded);
     } catch (Exception e) {
@@ -737,8 +879,6 @@ public interface PubberHost extends ManagerHost {
 
   void writePersistentStore();
 
-  void markStateDirty(long delayMs);
-
   void startConnection(Function<String, Boolean> connectionDone);
 
   byte[] ensureKeyBytes();
@@ -752,9 +892,10 @@ public interface PubberHost extends ManagerHost {
   String traceTimestamp(String messageBase);
 
   void shutdown();
-  
-  
+
   PubberOptions getOptions();
+
   PubberConfiguration getConfig();
+
   String getDeviceId();
 }
