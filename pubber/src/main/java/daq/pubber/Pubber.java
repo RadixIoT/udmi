@@ -736,7 +736,6 @@ public class Pubber extends ManagerBase implements PubberHost {
     }
   }
 
-
   @Override
   public String traceTimestamp(String messageBase) {
     int serial = MESSAGE_COUNTS.computeIfAbsent(messageBase, key -> new AtomicInteger())
@@ -788,6 +787,17 @@ public class Pubber extends ManagerBase implements PubberHost {
   }
 
   @Override
+  public void error(String message, Throwable e) {
+    if (e == null) {
+      error(message);
+      return;
+    }
+    String longMessage = message + ": " + e.getMessage();
+    cloudLog(longMessage, Level.ERROR);
+    deviceManager.localLog(message, Level.TRACE, getTimestamp(), stackTraceString(e));
+  }
+
+  @Override
   public void setLastStateTimeMs(long lastStateTimeMs) {
 
   }
@@ -835,17 +845,6 @@ public class Pubber extends ManagerBase implements PubberHost {
   @Override
   public String getAttemptedEndpoint() {
     return "";
-  }
-
-  @Override
-  public void error(String message, Throwable e) {
-    if (e == null) {
-      error(message);
-      return;
-    }
-    String longMessage = message + ": " + e.getMessage();
-    cloudLog(longMessage, Level.ERROR);
-    deviceManager.localLog(message, Level.TRACE, getTimestamp(), stackTraceString(e));
   }
 
   @Override
