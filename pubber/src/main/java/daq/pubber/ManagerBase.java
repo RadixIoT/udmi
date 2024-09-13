@@ -23,7 +23,7 @@ public abstract class ManagerBase {
 
   public static final int DISABLED_INTERVAL = 0;
   protected static final int DEFAULT_REPORT_SEC = 10;
-  protected static final int WAIT_TIME_SEC = 10;
+  public static final int WAIT_TIME_SEC = 10;
   protected final AtomicInteger sendRateSec = new AtomicInteger(DEFAULT_REPORT_SEC);
   protected final PubberOptions options;
   protected final ManagerHost host;
@@ -94,7 +94,14 @@ public abstract class ManagerBase {
     host.error(message, null);
   }
 
-  protected void updateInterval(Integer sampleRateSec) {
+  /**
+   * Updates the interval for periodic updates based on the provided sample rate,
+   * ensuring it respects the minimum disabled interval.
+   *
+   * @param sampleRateSec The desired sample rate in seconds,
+   *                      or null to use the default report interval.
+   */
+  public void updateInterval(Integer sampleRateSec) {
     int reportInterval = ofNullable(sampleRateSec).orElse(DEFAULT_REPORT_SEC);
     int intervalSec = ofNullable(options.fixedSampleRate).orElse(reportInterval);
     if (intervalSec < DISABLED_INTERVAL) {
@@ -161,6 +168,14 @@ public abstract class ManagerBase {
 
   public String getDeviceId() {
     return deviceId;
+  }
+
+  public PubberOptions getOptions() {
+    return options;
+  }
+
+  public PubberConfiguration getConfig() {
+    return config;
   }
 
 }

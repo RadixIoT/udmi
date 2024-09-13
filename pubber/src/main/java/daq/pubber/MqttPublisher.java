@@ -68,7 +68,7 @@ import udmi.schema.PubberConfiguration;
 public class MqttPublisher implements Publisher {
 
   public static final String EMPTY_STRING = "";
-  static final int DEFAULT_CONFIG_WAIT_SEC = 10;
+  public static final int DEFAULT_CONFIG_WAIT_SEC = 10;
   private static final String DEFAULT_TOPIC_PREFIX = "/devices/";
   private static final Logger LOG = LoggerFactory.getLogger(MqttPublisher.class);
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
@@ -649,7 +649,10 @@ public class MqttPublisher implements Publisher {
     }
   }
 
-  static class InjectedMessage {
+  /**
+   * Represents a message with placeholders that need to be replaced.
+   */
+  public static class InjectedMessage {
 
     private static final String REPLACE_MESSAGE_KEY = "REPLACE_MESSAGE_WITH";
     private static final String REPLACE_TOPIC_KEY = "REPLACE_TOPIC_WITH";
@@ -662,7 +665,10 @@ public class MqttPublisher implements Publisher {
     public String REPLACE_TOPIC_WITH;
   }
 
-  static class InjectedState extends InjectedMessage {
+  /**
+   * Represents the state of an {@link InjectedMessage}.
+   */
+  public static class InjectedState extends InjectedMessage {
 
   }
 
