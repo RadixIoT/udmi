@@ -40,11 +40,8 @@ import static udmi.schema.BlobsetConfig.SystemBlobsets.IOT_ENDPOINT_CONFIG;
 import static udmi.schema.EndpointConfiguration.Protocol.MQTT;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMap.Builder;
 import com.google.daq.mqtt.util.CatchingScheduledThreadPoolExecutor;
 import com.google.udmi.util.CertManager;
-import com.google.udmi.util.GeneralUtils;
-import com.google.udmi.util.MessageDowngrader;
 import com.google.udmi.util.SchemaVersion;
 import com.google.udmi.util.SiteModel;
 import com.google.udmi.util.SiteModel.MetadataException;
@@ -52,12 +49,9 @@ import daq.pubber.MqttPublisher.InjectedMessage;
 import daq.pubber.MqttPublisher.InjectedState;
 import daq.pubber.MqttPublisher.PublisherException;
 import daq.pubber.PubSubClient.Bundle;
-import daq.pubber.client.PointsetManagerProvider.ExtraPointsetEvent;
 import daq.pubber.client.PubberHost;
-import daq.pubber.client.SystemManagerProvider.ExtraSystemState;
 import java.io.File;
 import java.io.PrintStream;
-import java.lang.reflect.Field;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -66,7 +60,6 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -78,35 +71,19 @@ import java.util.function.Function;
 import org.apache.http.ConnectionClosedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import udmi.schema.BlobBlobsetConfig;
-import udmi.schema.BlobBlobsetConfig.BlobPhase;
-import udmi.schema.BlobBlobsetState;
-import udmi.schema.BlobsetConfig.SystemBlobsets;
-import udmi.schema.BlobsetState;
-import udmi.schema.Category;
 import udmi.schema.CloudModel.Auth_type;
 import udmi.schema.Config;
 import udmi.schema.DevicePersistent;
-import udmi.schema.DiscoveryEvents;
-import udmi.schema.DiscoveryState;
 import udmi.schema.EndpointConfiguration;
 import udmi.schema.EndpointConfiguration.Protocol;
-import udmi.schema.Entry;
 import udmi.schema.Envelope;
 import udmi.schema.Envelope.SubFolder;
-import udmi.schema.Envelope.SubType;
-import udmi.schema.GatewayState;
 import udmi.schema.Level;
-import udmi.schema.LocalnetState;
 import udmi.schema.Metadata;
 import udmi.schema.Operation.SystemMode;
-import udmi.schema.PointsetEvents;
-import udmi.schema.PointsetState;
 import udmi.schema.PubberConfiguration;
 import udmi.schema.PubberOptions;
 import udmi.schema.State;
-import udmi.schema.SystemEvents;
-import udmi.schema.SystemState;
 
 /**
  * IoT Core UDMI Device Emulator.
@@ -799,22 +776,22 @@ public class Pubber extends ManagerBase implements PubberHost {
 
   @Override
   public void setLastStateTimeMs(long lastStateTimeMs) {
-
+    this.lastStateTimeMs = lastStateTimeMs;
   }
 
   @Override
   public long getLastStateTimeMs() {
-    return 0;
+    return this.lastStateTimeMs;
   }
 
   @Override
   public CountDownLatch getConfigLatch() {
-    return null;
+    return this.configLatch;
   }
 
   @Override
   public File getOutDir() {
-    return null;
+    return this.outDir;
   }
 
   @Override
@@ -824,27 +801,27 @@ public class Pubber extends ManagerBase implements PubberHost {
 
   @Override
   public EndpointConfiguration getExtractedEndpoint() {
-    return null;
+    return this.extractedEndpoint;
   }
 
   @Override
   public void setExtractedEndpoint(EndpointConfiguration endpointConfiguration) {
-
+    this.extractedEndpoint = endpointConfiguration;
   }
 
   @Override
   public String getWorkingEndpoint() {
-    return "";
+    return workingEndpoint;
   }
 
   @Override
-  public void setAttemptedEndpoint(String s) {
-
+  public void setAttemptedEndpoint(String attemptedEndpoint) {
+    this.attemptedEndpoint = attemptedEndpoint;
   }
 
   @Override
   public String getAttemptedEndpoint() {
-    return "";
+    return this.attemptedEndpoint;
   }
 
   @Override
