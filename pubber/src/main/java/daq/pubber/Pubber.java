@@ -691,12 +691,12 @@ public class Pubber extends ManagerBase implements PubberHost {
 
   @Override
   public AtomicBoolean getStateDirty() {
-    return null;
+    return stateDirty;
   }
 
   @Override
   public SchemaVersion getTargetSchema() {
-    return null;
+    return targetSchema;
   }
 
   @Override

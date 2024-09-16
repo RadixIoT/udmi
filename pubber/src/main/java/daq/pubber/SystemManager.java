@@ -244,7 +244,7 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
   }
 
   @Override
-  public void updateConfig(SystemConfig system, Date timestamp) {
+  public void  updateConfig(SystemConfig system, Date timestamp) {
     Integer oldBase = catchToNull(() -> systemConfig.testing.config_base);
     Integer newBase = catchToNull(() -> system.testing.config_base);
     if (oldBase != null && oldBase.equals(newBase)
