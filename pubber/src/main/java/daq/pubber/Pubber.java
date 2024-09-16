@@ -819,7 +819,7 @@ public class Pubber extends ManagerBase implements PubberHost {
 
   @Override
   public Lock getStateLock() {
-    return null;
+    return stateLock;
   }
 
   @Override
