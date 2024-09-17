@@ -9,6 +9,9 @@ on:
   schedule:
     - cron: '0 13 * * *'
 
+env:
+  TARGET_PROJECT: //mqtt/localhost
+
 concurrency:
   group: ci-${{ github.repository }}
   cancel-in-progress: true
