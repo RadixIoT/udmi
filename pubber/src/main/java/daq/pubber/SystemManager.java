@@ -133,6 +133,7 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
    *
    * @param metadata the input metadata.
    */
+  @Override
   public void setHardwareSoftware(Metadata metadata) {
 
     systemState.hardware.make = catchOrElse(
@@ -164,6 +165,7 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
    *
    * @return the system events.
    */
+  @Override
   public SystemEvents getSystemEvent() {
     SystemEvents systemEvent = new SystemEvents();
     systemEvent.last_config = systemState.last_config;
@@ -231,6 +233,11 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
   }
 
   @Override
+  public void periodicUpdate() {
+    sendSystemEvent();
+  }
+
+  @Override
   public void systemLifecycle(SystemMode mode) {
     systemState.operation.mode = mode;
     try {
@@ -244,7 +251,7 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
   }
 
   @Override
-  public void updateConfig(SystemConfig system, Date timestamp) {
+  public void  updateConfig(SystemConfig system, Date timestamp) {
     Integer oldBase = catchToNull(() -> systemConfig.testing.config_base);
     Integer newBase = catchToNull(() -> system.testing.config_base);
     if (oldBase != null && oldBase.equals(newBase)
@@ -264,6 +271,7 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
    * @param level the level.
    * @return true if we can log at the level provided.
    */
+  @Override
   public boolean shouldLogLevel(int level) {
     if (options.fixedLogLevel != null) {
       return level >= options.fixedLogLevel;

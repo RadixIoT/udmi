@@ -61,11 +61,6 @@ public interface SystemManagerProvider {
 
   void sendSystemEvent();
 
-
-  default void periodicUpdate() {
-    sendSystemEvent();
-  }
-
   default void setMetadata(Metadata metadata) {
     setHardwareSoftware(metadata);
   }
