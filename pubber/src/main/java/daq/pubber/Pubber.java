@@ -10,12 +10,10 @@ import static com.google.udmi.util.GeneralUtils.friendlyStackTrace;
 import static com.google.udmi.util.GeneralUtils.fromJsonFile;
 import static com.google.udmi.util.GeneralUtils.fromJsonString;
 import static com.google.udmi.util.GeneralUtils.getFileBytes;
-import static com.google.udmi.util.GeneralUtils.getNow;
 import static com.google.udmi.util.GeneralUtils.getTimestamp;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
-import static com.google.udmi.util.GeneralUtils.isGetTrue;
 import static com.google.udmi.util.GeneralUtils.isTrue;
 import static com.google.udmi.util.GeneralUtils.optionsString;
 import static com.google.udmi.util.GeneralUtils.setClockSkew;
@@ -24,19 +22,14 @@ import static com.google.udmi.util.GeneralUtils.stackTraceString;
 import static com.google.udmi.util.GeneralUtils.toJsonFile;
 import static com.google.udmi.util.GeneralUtils.toJsonString;
 import static com.google.udmi.util.JsonUtil.isoConvert;
-import static com.google.udmi.util.JsonUtil.parseJson;
 import static com.google.udmi.util.JsonUtil.safeSleep;
 import static com.google.udmi.util.JsonUtil.stringify;
-import static daq.pubber.MqttDevice.CONFIG_TOPIC;
-import static daq.pubber.MqttDevice.ERRORS_TOPIC;
-import static daq.pubber.MqttDevice.STATE_TOPIC;
 import static daq.pubber.MqttPublisher.DEFAULT_CONFIG_WAIT_SEC;
 import static daq.pubber.SystemManager.LOG_MAP;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 import static java.util.Optional.ofNullable;
-import static udmi.schema.BlobsetConfig.SystemBlobsets.IOT_ENDPOINT_CONFIG;
 import static udmi.schema.EndpointConfiguration.Protocol.MQTT;
 
 import com.google.common.collect.ImmutableMap;
@@ -49,7 +42,7 @@ import daq.pubber.MqttPublisher.InjectedMessage;
 import daq.pubber.MqttPublisher.InjectedState;
 import daq.pubber.MqttPublisher.PublisherException;
 import daq.pubber.PubSubClient.Bundle;
-import daq.pubber.client.PubberHost;
+import daq.pubber.client.PubberHostProvider;
 import java.io.File;
 import java.io.PrintStream;
 import java.time.Duration;
@@ -88,14 +81,14 @@ import udmi.schema.State;
 /**
  * IoT Core UDMI Device Emulator.
  */
-public class Pubber extends ManagerBase implements PubberHost {
+public class Pubber extends ManagerBase implements PubberHostProvider {
 
   public static final String PUBBER_OUT = "pubber/out";
   public static final String PERSISTENT_STORE_FILE = "persistent_data.json";
   public static final String PERSISTENT_TMP_FORMAT = "/tmp/pubber_%s_" + PERSISTENT_STORE_FILE;
   public static final String CA_CRT = "ca.crt";
   static final Logger LOG = LoggerFactory.getLogger(Pubber.class);
-  static final Date DEVICE_START_TIME = PubberHost.getRoundedStartTime();
+  static final Date DEVICE_START_TIME = PubberHostProvider.getRoundedStartTime();
   static final int MESSAGE_REPORT_INTERVAL = 10;
   private static final String HOSTNAME = System.getenv("HOSTNAME");
   private static final String PUBSUB_SITE = "PubSub";

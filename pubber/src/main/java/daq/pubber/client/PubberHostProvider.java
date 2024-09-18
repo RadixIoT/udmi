@@ -80,7 +80,7 @@ import udmi.schema.SystemState;
 /**
  * Pubber client.
  */
-public interface PubberHost extends ManagerHost {
+public interface PubberHostProvider extends ManagerHost {
 
   static final String DATA_URL_JSON_BASE64 = "data:application/json;base64,";
 
@@ -91,12 +91,12 @@ public interface PubberHost extends ManagerHost {
       new Builder<Class<?>, String>()
           .put(State.class, STATE_TOPIC)
           .put(ExtraSystemState.class, STATE_TOPIC) // Used for badState option
-          .put(SystemEvents.class, PubberHost.getEventsSuffix("system"))
-          .put(PointsetEvents.class, PubberHost.getEventsSuffix("pointset"))
-          .put(ExtraPointsetEvent.class, PubberHost.getEventsSuffix("pointset"))
-          .put(InjectedMessage.class, PubberHost.getEventsSuffix("racoon"))
+          .put(SystemEvents.class, PubberHostProvider.getEventsSuffix("system"))
+          .put(PointsetEvents.class, PubberHostProvider.getEventsSuffix("pointset"))
+          .put(ExtraPointsetEvent.class, PubberHostProvider.getEventsSuffix("pointset"))
+          .put(InjectedMessage.class, PubberHostProvider.getEventsSuffix("racoon"))
           .put(InjectedState.class, STATE_TOPIC)
-          .put(DiscoveryEvents.class, PubberHost.getEventsSuffix("discovery"))
+          .put(DiscoveryEvents.class, PubberHostProvider.getEventsSuffix("discovery"))
           .build();
 
   static final String SYSTEM_CATEGORY_FORMAT = "system.%s.%s";
