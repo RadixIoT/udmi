@@ -87,9 +87,9 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
   public static final String PERSISTENT_STORE_FILE = "persistent_data.json";
   public static final String PERSISTENT_TMP_FORMAT = "/tmp/pubber_%s_" + PERSISTENT_STORE_FILE;
   public static final String CA_CRT = "ca.crt";
-  static final Logger LOG = LoggerFactory.getLogger(Pubber.class);
-  static final Date DEVICE_START_TIME = PubberHostProvider.getRoundedStartTime();
-  static final int MESSAGE_REPORT_INTERVAL = 10;
+  public static final Logger LOG = LoggerFactory.getLogger(Pubber.class);
+  public static final Date DEVICE_START_TIME = PubberHostProvider.getRoundedStartTime();
+  public static final int MESSAGE_REPORT_INTERVAL = 10;
   private static final String HOSTNAME = System.getenv("HOSTNAME");
   private static final String PUBSUB_SITE = "PubSub";
 

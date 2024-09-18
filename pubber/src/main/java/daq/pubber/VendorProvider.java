@@ -60,7 +60,7 @@ public class VendorProvider extends ManagerBase implements FamilyProvider {
     });
   }
 
-  void setSiteModel(SiteModel siteModel) {
+  public void setSiteModel(SiteModel siteModel) {
     this.siteModel = siteModel;
     updateStateAddress();
   }

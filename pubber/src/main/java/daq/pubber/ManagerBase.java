@@ -42,7 +42,7 @@ public abstract class ManagerBase {
     this.host = host;
   }
 
-  protected void updateState(Object state) {
+  public void updateState(Object state) {
     host.update(state);
   }
 
@@ -178,4 +178,7 @@ public abstract class ManagerBase {
     return config;
   }
 
+  public ManagerHost getHost() {
+    return host;
+  }
 }
