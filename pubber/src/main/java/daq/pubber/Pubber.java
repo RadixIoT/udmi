@@ -42,6 +42,7 @@ import daq.pubber.MqttPublisher.InjectedMessage;
 import daq.pubber.MqttPublisher.InjectedState;
 import daq.pubber.MqttPublisher.PublisherException;
 import daq.pubber.PubSubClient.Bundle;
+import daq.pubber.client.DeviceManagerProvider;
 import daq.pubber.client.PubberHostProvider;
 import java.io.File;
 import java.io.PrintStream;
@@ -375,13 +376,6 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
     }
   }
 
-  private void publishDirtyState() {
-    if (stateDirty.get()) {
-      debug("Publishing dirty state block");
-      markStateDirty(0);
-    }
-  }
-
   private void pullDeviceMessage() {
     while (true) {
       try {
@@ -528,12 +522,6 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
     maybeRedirectEndpoint();
   }
 
-  private void flushDirtyState() {
-    if (stateDirty.get()) {
-      publishAsynchronousState();
-    }
-  }
-
   @Override
   public void startConnection(Function<String, Boolean> connectionDone) {
     String nonce = String.valueOf(System.currentTimeMillis());
@@ -571,30 +559,6 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
     error("Attempt failed, retries remaining: " + retriesRemaining.get());
     safeSleep(RESTART_DELAY_MS);
     return false;
-  }
-
-  private void configLatchWait() {
-    try {
-      int waitTimeSec = ofNullable(config.endpoint.config_sync_sec)
-          .orElse(DEFAULT_CONFIG_WAIT_SEC);
-      int useWaitTime = waitTimeSec == 0 ? DEFAULT_CONFIG_WAIT_SEC : waitTimeSec;
-      warn(format("Start waiting %ds for config latch for %s", useWaitTime, deviceId));
-      if (useWaitTime > 0 && !configLatch.await(useWaitTime, TimeUnit.SECONDS)) {
-        throw new RuntimeException("Config latch timeout");
-      }
-    } catch (Exception e) {
-      throw new RuntimeException(format("While waiting for %s config latch", deviceId), e);
-    }
-  }
-
-  protected void initialize() {
-    try {
-      initializeDevice();
-      initializeMqtt();
-    } catch (Exception e) {
-      shutdown();
-      throw new RuntimeException("While initializing main pubber class", e);
-    }
   }
 
   @Override
@@ -742,10 +706,6 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
     cloudLog(message, Level.INFO);
   }
 
-  public void notice(String message) {
-    cloudLog(message, Level.NOTICE);
-  }
-
   @Override
   public void warn(String message) {
     cloudLog(message, Level.WARNING);
@@ -828,7 +788,7 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
   }
 
   @Override
-  public DeviceManager getDeviceManager() {
+  public DeviceManagerProvider getDeviceManager() {
     return deviceManager;
   }
 

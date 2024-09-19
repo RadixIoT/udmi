@@ -20,6 +20,7 @@ import static daq.pubber.ManagerBase.WAIT_TIME_SEC;
 import static daq.pubber.MqttDevice.CONFIG_TOPIC;
 import static daq.pubber.MqttDevice.ERRORS_TOPIC;
 import static daq.pubber.MqttDevice.STATE_TOPIC;
+import static daq.pubber.MqttPublisher.DEFAULT_CONFIG_WAIT_SEC;
 import static daq.pubber.SystemManager.LOG_MAP;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -108,7 +109,7 @@ public interface PubberHostProvider extends ManagerHost {
 
   Config getDeviceConfig();
 
-  DeviceManager getDeviceManager();
+  DeviceManagerProvider getDeviceManager();
 
   MqttDevice getDeviceTarget();
 
@@ -187,6 +188,16 @@ public interface PubberHostProvider extends ManagerHost {
 
   void markStateDirty(long delayMs);
 
+  /**
+   * Publishes a dirty state by resetting the internal state flag to clean.
+   *
+   */
+  default void publishDirtyState() {
+    if (getStateDirty().get()) {
+      debug("Publishing dirty state block");
+      markStateDirty(0);
+    }
+  }
 
   @Override
   default void update(Object update) {
@@ -594,8 +605,9 @@ public interface PubberHostProvider extends ManagerHost {
 
   String getAttemptedEndpoint();
 
-  void notice(String startingNewEndpointGeneration);
-
+  default void notice(String message) {
+    cloudLog(message, Level.NOTICE);
+  }
 
   private String redirectedEndpoint(String redirectRegistry) {
     try {
@@ -867,6 +879,21 @@ public interface PubberHostProvider extends ManagerHost {
     }
   }
 
+  /**
+   * Initializes the system by calling {@link #initializeDevice()} and {@link #initializeMqtt()}.
+   *
+   * @throws RuntimeException if initialization fails due to an unrecoverable error.
+   */
+  default void initialize() {
+    try {
+      initializeDevice();
+      initializeMqtt();
+    } catch (Exception e) {
+      shutdown();
+      throw new RuntimeException("While initializing main pubber class", e);
+    }
+  }
+
   default void debug(String message, String detail) {
     cloudLog(message, Level.DEBUG, detail);
   }
@@ -881,6 +908,15 @@ public interface PubberHostProvider extends ManagerHost {
 
   void startConnection(Function<String, Boolean> connectionDone);
 
+  /**
+   * Flushes the dirty state by publishing an asynchronous state change.
+   */
+  default void flushDirtyState() {
+    if (getStateDirty().get()) {
+      publishAsynchronousState();
+    }
+  }
+
   byte[] ensureKeyBytes();
 
   void publisherException(Exception toReport);
@@ -890,6 +926,26 @@ public interface PubberHostProvider extends ManagerHost {
   void resetConnection(String targetEndpoint);
 
   String traceTimestamp(String messageBase);
+
+  /**
+   * Configures a wait time for the configuration latch and waits until it is acquired.
+   *
+   * @throws RuntimeException if the configuration latch is not acquired within the
+   *         specified or default wait time.
+   */
+  default void configLatchWait() {
+    try {
+      int waitTimeSec = ofNullable(getConfig().endpoint.config_sync_sec)
+          .orElse(DEFAULT_CONFIG_WAIT_SEC);
+      int useWaitTime = waitTimeSec == 0 ? DEFAULT_CONFIG_WAIT_SEC : waitTimeSec;
+      warn(format("Start waiting %ds for config latch for %s", useWaitTime, getDeviceId()));
+      if (useWaitTime > 0 && !getConfigLatch().await(useWaitTime, TimeUnit.SECONDS)) {
+        throw new RuntimeException("Config latch timeout");
+      }
+    } catch (Exception e) {
+      throw new RuntimeException(format("While waiting for %s config latch", getDeviceId()), e);
+    }
+  }
 
   void shutdown();
 
