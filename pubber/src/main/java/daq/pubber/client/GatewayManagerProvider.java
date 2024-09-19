@@ -1,29 +1,78 @@
 package daq.pubber.client;
 
+import static com.google.udmi.util.GeneralUtils.catchToNull;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
+import static com.google.udmi.util.GeneralUtils.ifTrueGet;
+import static com.google.udmi.util.GeneralUtils.ifTrueThen;
+import static com.google.udmi.util.GeneralUtils.isTrue;
+import static java.lang.String.format;
+import static java.util.Optional.ofNullable;
 
 import com.google.udmi.util.SiteModel;
+import daq.pubber.ManagerHost;
+import daq.pubber.ManagerLog;
 import daq.pubber.ProxyDevice;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Objects;
+import udmi.schema.Config;
 import udmi.schema.Entry;
 import udmi.schema.GatewayConfig;
 import udmi.schema.GatewayState;
 import udmi.schema.Level;
 import udmi.schema.Metadata;
+import udmi.schema.PointPointsetConfig;
+import udmi.schema.PointsetConfig;
+import udmi.schema.PubberConfiguration;
+import udmi.schema.PubberOptions;
 
 /**
  * Gateway client.
  */
-public interface GatewayManagerProvider {
-  
+public interface GatewayManagerProvider extends ManagerLog {
+
+  static final String EXTRA_PROXY_DEVICE = "XXX-1";
+  static final String EXTRA_PROXY_POINT = "xxx_conflagration";
   Metadata getMetadata();
 
   void setMetadata(Metadata metadata);
 
   GatewayState getGatewayState();
 
-  Map<String, ProxyDevice> getProxyDevices();
+  Map<String, ProxyDeviceHostProvider> getProxyDevices();
+
+  /**
+   * Creates a map of proxy devices.
+   *
+   * @param proxyIds A list of device IDs to create proxies for.
+   * @return A map where each key-value pair represents a device ID and its corresponding proxy
+   * @throws NoSuchElementException if no first element exists in the stream
+   */
+  default Map<String, ProxyDeviceHostProvider> createProxyDevices(List<String> proxyIds) {
+    if (proxyIds == null) {
+      return Map.of();
+    }
+
+    Map<String, ProxyDeviceHostProvider> devices = new HashMap<>();
+    if (!proxyIds.isEmpty()) {
+      String firstId = proxyIds.stream().sorted().findFirst().orElseThrow();
+      String noProxyId = ifTrueGet(isTrue(getOptions().noProxy), () -> firstId);
+      ifNotNullThen(noProxyId, id -> warn(format("Not proxying device %s", noProxyId)));
+      proxyIds.forEach(id -> {
+        if (!id.equals(noProxyId)) {
+          devices.put(id, new ProxyDevice(getHost(), id, getConfig()));
+        }
+      });
+    }
+
+    ifTrueThen(getOptions().extraDevice, () -> devices.put(EXTRA_PROXY_DEVICE, makeExtraDevice()));
+
+    return devices;
+  }
+
+  ProxyDeviceHostProvider makeExtraDevice();
 
   default void activate() {
     throw new UnsupportedOperationException("Not supported yet.");
@@ -39,8 +88,6 @@ public interface GatewayManagerProvider {
       }
     }));
   }
-
-  Map<String, ProxyDevice> createProxyDevices(List<String> proxyIds);
 
   /**
    * Sets gateway status.
@@ -59,15 +106,54 @@ public interface GatewayManagerProvider {
 
   void stop();
 
-  void updateState();
+  /**
+   * Updates the state of the gateway.
+   */
+  default void updateState() {
+    updateState(ofNullable((Object) getGatewayState()).orElse(GatewayState.class));
+  }
+
+  void updateState(Object state);
 
   void shutdown();
 
-  String validateGatewayFamily(String family);
+  /**
+   * Validates the given gateway family.
+   *
+   * @param family The gateway family to validate.
+   * @return The validated family if successful; otherwise, null.
+   * @throws NullPointerException If the address for the specified family is null or undefined.
+   */
+  default String validateGatewayFamily(String family) {
+    if (family == null) {
+      return null;
+    }
+    debug("Validating gateway family " + family);
+    Objects.requireNonNull(catchToNull(() -> getMetadata().localnet.families.get(family).addr),
+        format("Address family %s addr is null or undefined", family));
+    return family;
+  }
 
-  void configExtraDevice();
+  /**
+   * Configures the extra device with default settings.
+   *
+   */
+  default void configExtraDevice() {
+    Config config = new Config();
+    config.pointset = new PointsetConfig();
+    config.pointset.points = new HashMap<>();
+    PointPointsetConfig pointPointsetConfig = new PointPointsetConfig();
+    config.pointset.points.put(EXTRA_PROXY_POINT, pointPointsetConfig);
+    getProxyDevices().get(EXTRA_PROXY_DEVICE).configHandler(config);
+  }
 
   void updateConfig(GatewayConfig gateway);
 
   void setSiteModel(SiteModel siteModel);
+
+  PubberConfiguration getConfig();
+
+  PubberOptions getOptions();
+
+  ManagerHost getHost();
 }

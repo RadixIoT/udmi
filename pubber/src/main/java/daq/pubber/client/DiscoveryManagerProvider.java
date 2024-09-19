@@ -33,14 +33,18 @@ import udmi.schema.FamilyDiscoveryState;
  */
 public interface DiscoveryManagerProvider extends ManagerLog {
 
-
-  private static boolean shouldEnumerateTo(Depths.Depth depth) {
+  /**
+   * Determines whether enumeration to a specific depth level is required.
+   *
+   * @param depth The depth level for which to determine if enumeration should occur.
+   * @return True if enumeration is required at the specified depth level, false otherwise.
+   */
+  static boolean shouldEnumerateTo(Depths.Depth depth) {
     return ifNullElse(depth, false, d -> switch (d) {
       default -> false;
       case ENTRIES, DETAILS -> true;
     });
   }
-
 
   default  <K, V> Map<K, V> maybeEnumerate(Depths.Depth depth, Supplier<Map<K, V>> supplier) {
     return ifTrueGet(shouldEnumerateTo(depth), supplier);
@@ -132,7 +136,7 @@ public interface DiscoveryManagerProvider extends ManagerLog {
     updateState();
   }
 
-  private FamilyDiscoveryState getFamilyDiscoveryState(String family) {
+  default FamilyDiscoveryState getFamilyDiscoveryState(String family) {
     return getDiscoveryState().families.get(family);
   }
 
@@ -167,7 +171,11 @@ public interface DiscoveryManagerProvider extends ManagerLog {
     }
   }
 
-  void updateState();
+  default void updateState() {
+    updateState(ofNullable((Object) getDiscoveryState()).orElse(DiscoveryState.class));
+  }
+
+  void updateState(Object state);
 
   /**
    * Update the discovery config.
@@ -192,6 +200,11 @@ public interface DiscoveryManagerProvider extends ManagerLog {
   default int getScanInterval(String family) {
     return ofNullable(
         catchToNull(() -> getFamilyDiscoveryConfig(family).scan_interval_sec)).orElse(0);
+  }
+
+
+  default boolean shouldEnumerate(String family) {
+    return shouldEnumerateTo(getFamilyDiscoveryConfig(family).depth);
   }
 
   Date getDeviceStartTime();

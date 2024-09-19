@@ -1,8 +1,11 @@
 package daq.pubber.client;
 
+import daq.pubber.FamilyProvider;
+import java.util.Map;
 import udmi.schema.Config;
 import udmi.schema.DevicePersistent;
 import udmi.schema.Entry;
+import udmi.schema.FamilyDiscovery;
 import udmi.schema.Level;
 import udmi.schema.Metadata;
 import udmi.schema.Operation.SystemMode;
@@ -22,27 +25,9 @@ public interface DeviceManagerProvider {
 
   DiscoveryManagerProvider getDiscoveryManager();
 
-  /**
-   * Shutdown everything, including sub-managers.
-   */
-  default void shutdown() {
-    getSystemManager().shutdown();
-    getPointsetManager().shutdown();
-    getLocalnetManager().shutdown();
-    getGatewayManager().shutdown();
+  default Map<String, FamilyDiscovery> enumerateFamilies() {
+    return getLocalnetManager().enumerateFamilies();
   }
-
-  /**
-   * Stop periodic senders.
-   */
-  
-  default void stop() {
-    getPointsetManager().stop();
-    getLocalnetManager().stop();
-    getGatewayManager().stop();
-    getSystemManager().stop();
-  }
-
 
   default void setPersistentData(DevicePersistent persistentData) {
     getSystemManager().setPersistentData(persistentData);
@@ -107,6 +92,13 @@ public interface DeviceManagerProvider {
     getSystemManager().cloudLog(message, level, detail);
   }
 
+  default FamilyProvider getLocalnetProvider(String family) {
+    return getLocalnetManager().getLocalnetProvider(family);
+  }
+
+  void shutdown();
+
+  void stop();
 
   String getDeviceId();
 

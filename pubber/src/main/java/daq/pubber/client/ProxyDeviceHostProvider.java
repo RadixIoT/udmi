@@ -28,12 +28,6 @@ public interface ProxyDeviceHostProvider extends ManagerHost, ManagerLog {
 
   String getDeviceId();
 
-  private static PubberConfiguration makeProxyConfiguration(String id, PubberConfiguration config) {
-    PubberConfiguration proxyConfiguration = deepCopy(config);
-    proxyConfiguration.deviceId = id;
-    return proxyConfiguration;
-  }
-
   /**
    * Activates the proxy device by setting its active status, registering a handler for
    * configuration updates, connecting to MQTT, activating the device manager,

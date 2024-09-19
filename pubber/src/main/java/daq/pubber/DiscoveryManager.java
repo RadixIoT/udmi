@@ -116,10 +116,6 @@ public class DiscoveryManager extends ManagerBase implements DiscoveryManagerPro
         }));
   }
 
-  private boolean shouldEnumerate(String family) {
-    return shouldEnumerateTo(getFamilyDiscoveryConfig(family).depth);
-  }
-
   private FamilyProvider discoveryProvider(String family) {
     return host.getLocalnetProvider(family);
   }
