@@ -15,12 +15,10 @@ import static udmi.schema.FamilyDiscoveryState.Phase.PENDING;
 import static udmi.schema.FamilyDiscoveryState.Phase.STOPPED;
 
 import com.google.udmi.util.SiteModel;
-import daq.pubber.ManagerLog;
 import java.time.Instant;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ScheduledFuture;
 import java.util.function.Supplier;
 import udmi.schema.Depths;
 import udmi.schema.DiscoveryConfig;
@@ -31,7 +29,7 @@ import udmi.schema.FamilyDiscoveryState;
 /**
  * Discovery client.
  */
-public interface DiscoveryManagerProvider extends ManagerLog {
+public interface DiscoveryManagerProvider extends ManagerProvider {
 
   /**
    * Determines whether enumeration to a specific depth level is required.
@@ -175,8 +173,6 @@ public interface DiscoveryManagerProvider extends ManagerLog {
     updateState(ofNullable((Object) getDiscoveryState()).orElse(DiscoveryState.class));
   }
 
-  void updateState(Object state);
-
   /**
    * Update the discovery config.
    *
@@ -219,7 +215,7 @@ public interface DiscoveryManagerProvider extends ManagerLog {
 
   void setDiscoveryConfig(DiscoveryConfig discoveryConfig);
 
-  ScheduledFuture<?> scheduleFuture(Date startGeneration, Runnable runnable);
+  void scheduleFuture(Date startGeneration, Runnable runnable);
 
   void startDiscoveryScan(String family, Date scanGeneration);
 

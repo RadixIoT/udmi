@@ -1,6 +1,5 @@
 package daq.pubber.client;
 
-import static com.google.udmi.util.GeneralUtils.deepCopy;
 import static com.google.udmi.util.GeneralUtils.friendlyStackTrace;
 import static java.lang.String.format;
 
@@ -11,7 +10,6 @@ import daq.pubber.MqttDevice;
 import java.util.concurrent.atomic.AtomicBoolean;
 import udmi.schema.Config;
 import udmi.schema.Metadata;
-import udmi.schema.PubberConfiguration;
 
 /**
  * Proxy Device host provider.

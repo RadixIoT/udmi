@@ -14,6 +14,7 @@ import static udmi.schema.FamilyDiscoveryState.Phase.DONE;
 
 import com.google.udmi.util.SiteModel;
 import daq.pubber.client.DiscoveryManagerProvider;
+import daq.pubber.client.ManagerProvider;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -33,7 +34,8 @@ import udmi.schema.SystemDiscoveryData;
 /**
  * Manager wrapper for discovery functionality in pubber.
  */
-public class DiscoveryManager extends ManagerBase implements DiscoveryManagerProvider {
+public class DiscoveryManager extends ManagerBase implements DiscoveryManagerProvider,
+    ManagerProvider {
 
   public static final int SCAN_DURATION_SEC = 10;
 

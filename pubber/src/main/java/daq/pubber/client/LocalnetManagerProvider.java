@@ -18,7 +18,7 @@ import udmi.schema.PubberConfiguration;
 /**
  * Localnet client.
  */
-public interface LocalnetManagerProvider extends ManagerHost {
+public interface LocalnetManagerProvider extends ManagerHost, ManagerProvider {
 
   static final Map<String, Class<? extends FamilyProvider>> LOCALNET_PROVIDERS =
       Map.of(
@@ -64,8 +64,6 @@ public interface LocalnetManagerProvider extends ManagerHost {
     updateState(ifNotNullGet(getLocalnetConfig(), c -> getLocalnetState(), LocalnetState.class));
   }
 
-  void updateState(Object state);
-
   default void updateConfig(LocalnetConfig localnet) {
     setLocalnetConfig(localnet);
     updateState();
@@ -100,12 +98,4 @@ public interface LocalnetManagerProvider extends ManagerHost {
     getHost().publish(message);
   }
 
-  void stop();
-
-  void shutdown();
-
-  PubberConfiguration getConfig();
-
-
-  ManagerHost getHost();
 }

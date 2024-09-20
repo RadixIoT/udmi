@@ -8,6 +8,7 @@ import static java.util.Optional.ofNullable;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 import com.google.daq.mqtt.util.CatchingScheduledThreadPoolExecutor;
+import daq.pubber.client.ManagerProvider;
 import java.util.Date;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -19,7 +20,7 @@ import udmi.schema.PubberOptions;
 /**
  * Base class for Pubber subsystem managers.
  */
-public abstract class ManagerBase {
+public abstract class ManagerBase implements ManagerProvider {
 
   public static final int DISABLED_INTERVAL = 0;
   protected static final int DEFAULT_REPORT_SEC = 10;
@@ -42,6 +43,7 @@ public abstract class ManagerBase {
     this.host = host;
   }
 
+  @Override
   public void updateState(Object state) {
     host.update(state);
   }
@@ -51,15 +53,14 @@ public abstract class ManagerBase {
    *
    * @param futureTime Time to schedule.
    * @param futureTask Task to schedule.
-   * @return ScheduledFuture.
    */
-  public ScheduledFuture<?> scheduleFuture(Date futureTime, Runnable futureTask) {
+  public void scheduleFuture(Date futureTime, Runnable futureTask) {
     if (executor.isShutdown() || executor.isTerminated()) {
       throw new RuntimeException("Executor shutdown/terminated, not scheduling");
     }
     long delay = Math.max(futureTime.getTime() - getNow().getTime(), 0);
     debug(format("Scheduling future in %dms", delay));
-    return executor.schedule(() -> wrappedRunnable(futureTask), delay, TimeUnit.MILLISECONDS);
+    executor.schedule(() -> wrappedRunnable(futureTask), delay, TimeUnit.MILLISECONDS);
   }
 
   private void wrappedRunnable(Runnable futureTask) {

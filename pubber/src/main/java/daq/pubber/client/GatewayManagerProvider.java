@@ -9,8 +9,6 @@ import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
 
 import com.google.udmi.util.SiteModel;
-import daq.pubber.ManagerHost;
-import daq.pubber.ManagerLog;
 import daq.pubber.ProxyDevice;
 import java.util.HashMap;
 import java.util.List;
@@ -25,13 +23,11 @@ import udmi.schema.Level;
 import udmi.schema.Metadata;
 import udmi.schema.PointPointsetConfig;
 import udmi.schema.PointsetConfig;
-import udmi.schema.PubberConfiguration;
-import udmi.schema.PubberOptions;
 
 /**
  * Gateway client.
  */
-public interface GatewayManagerProvider extends ManagerLog {
+public interface GatewayManagerProvider extends ManagerProvider {
 
   static final String EXTRA_PROXY_DEVICE = "XXX-1";
   static final String EXTRA_PROXY_POINT = "xxx_conflagration";
@@ -104,18 +100,12 @@ public interface GatewayManagerProvider extends ManagerLog {
     getGatewayState().status.message = message;
   }
 
-  void stop();
-
   /**
    * Updates the state of the gateway.
    */
   default void updateState() {
     updateState(ofNullable((Object) getGatewayState()).orElse(GatewayState.class));
   }
-
-  void updateState(Object state);
-
-  void shutdown();
 
   /**
    * Validates the given gateway family.
@@ -151,9 +141,4 @@ public interface GatewayManagerProvider extends ManagerLog {
 
   void setSiteModel(SiteModel siteModel);
 
-  PubberConfiguration getConfig();
-
-  PubberOptions getOptions();
-
-  ManagerHost getHost();
 }

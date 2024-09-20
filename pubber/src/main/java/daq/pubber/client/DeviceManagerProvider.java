@@ -13,7 +13,7 @@ import udmi.schema.Operation.SystemMode;
 /**
  * Device client.
  */
-public interface DeviceManagerProvider {
+public interface DeviceManagerProvider extends ManagerProvider {
   
   PointsetManagerProvider getPointsetManager();
 
@@ -95,11 +95,5 @@ public interface DeviceManagerProvider {
   default FamilyProvider getLocalnetProvider(String family) {
     return getLocalnetManager().getLocalnetProvider(family);
   }
-
-  void shutdown();
-
-  void stop();
-
-  String getDeviceId();
 
 }
