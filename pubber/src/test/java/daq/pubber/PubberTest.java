@@ -10,7 +10,7 @@ import static udmi.schema.BlobsetConfig.SystemBlobsets.IOT_ENDPOINT_CONFIG;
 
 import com.google.common.collect.ImmutableList;
 import com.google.udmi.util.JsonUtil;
-import daq.pubber.client.PubberHost;
+import daq.pubber.client.PubberHostProvider;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -169,14 +169,14 @@ public class PubberTest extends TestBase {
   @Test
   public void parseDataUrl() {
     String testBlobDataUrl = DATA_URL_PREFIX + encodeBase64(TEST_BLOB_DATA);
-    String blobData = PubberHost.acquireBlobData(testBlobDataUrl, sha256(TEST_BLOB_DATA));
+    String blobData = PubberHostProvider.acquireBlobData(testBlobDataUrl, sha256(TEST_BLOB_DATA));
     assertEquals("extracted blob data", blobData, TEST_BLOB_DATA);
   }
 
   @Test(expected = RuntimeException.class)
   public void badDataUrl() {
     String testBlobDataUrl = DATA_URL_PREFIX + encodeBase64(TEST_BLOB_DATA + "XXXX");
-    PubberHost.acquireBlobData(testBlobDataUrl, sha256(TEST_BLOB_DATA));
+    PubberHostProvider.acquireBlobData(testBlobDataUrl, sha256(TEST_BLOB_DATA));
   }
 
   @Test
@@ -212,12 +212,12 @@ public class PubberTest extends TestBase {
     State testMessage = new State();
 
     assertNull(testMessage.timestamp);
-    PubberHost.augmentDeviceMessage(testMessage, new Date(), false);
+    PubberHostProvider.augmentDeviceMessage(testMessage, new Date(), false);
     assertEquals(testMessage.version, Pubber.UDMI_VERSION);
     assertNotEquals(testMessage.timestamp, null);
 
     testMessage.timestamp = new Date(1241);
-    PubberHost.augmentDeviceMessage(testMessage, new Date(), false);
+    PubberHostProvider.augmentDeviceMessage(testMessage, new Date(), false);
     assertEquals(testMessage.version, Pubber.UDMI_VERSION);
     assertNotEquals(testMessage.timestamp, new Date(1241));
   }

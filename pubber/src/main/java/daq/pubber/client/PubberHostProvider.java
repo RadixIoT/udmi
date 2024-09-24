@@ -5,7 +5,6 @@ import static com.google.udmi.util.GeneralUtils.fromJsonString;
 import static com.google.udmi.util.GeneralUtils.getNow;
 import static com.google.udmi.util.GeneralUtils.getTimestamp;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
-import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.GeneralUtils.isGetTrue;
 import static com.google.udmi.util.GeneralUtils.isTrue;
@@ -20,6 +19,7 @@ import static daq.pubber.ManagerBase.WAIT_TIME_SEC;
 import static daq.pubber.MqttDevice.CONFIG_TOPIC;
 import static daq.pubber.MqttDevice.ERRORS_TOPIC;
 import static daq.pubber.MqttDevice.STATE_TOPIC;
+import static daq.pubber.MqttPublisher.DEFAULT_CONFIG_WAIT_SEC;
 import static daq.pubber.SystemManager.LOG_MAP;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -32,7 +32,6 @@ import com.google.udmi.util.GeneralUtils;
 import com.google.udmi.util.MessageDowngrader;
 import com.google.udmi.util.SchemaVersion;
 import com.google.udmi.util.SiteModel;
-import daq.pubber.DeviceManager;
 import daq.pubber.GatewayError;
 import daq.pubber.ManagerHost;
 import daq.pubber.MqttDevice;
@@ -80,7 +79,7 @@ import udmi.schema.SystemState;
 /**
  * Pubber client.
  */
-public interface PubberHost extends ManagerHost {
+public interface PubberHostProvider extends ManagerHost {
 
   static final String DATA_URL_JSON_BASE64 = "data:application/json;base64,";
 
@@ -91,12 +90,12 @@ public interface PubberHost extends ManagerHost {
       new Builder<Class<?>, String>()
           .put(State.class, STATE_TOPIC)
           .put(ExtraSystemState.class, STATE_TOPIC) // Used for badState option
-          .put(SystemEvents.class, PubberHost.getEventsSuffix("system"))
-          .put(PointsetEvents.class, PubberHost.getEventsSuffix("pointset"))
-          .put(ExtraPointsetEvent.class, PubberHost.getEventsSuffix("pointset"))
-          .put(InjectedMessage.class, PubberHost.getEventsSuffix("racoon"))
+          .put(SystemEvents.class, PubberHostProvider.getEventsSuffix("system"))
+          .put(PointsetEvents.class, PubberHostProvider.getEventsSuffix("pointset"))
+          .put(ExtraPointsetEvent.class, PubberHostProvider.getEventsSuffix("pointset"))
+          .put(InjectedMessage.class, PubberHostProvider.getEventsSuffix("racoon"))
           .put(InjectedState.class, STATE_TOPIC)
-          .put(DiscoveryEvents.class, PubberHost.getEventsSuffix("discovery"))
+          .put(DiscoveryEvents.class, PubberHostProvider.getEventsSuffix("discovery"))
           .build();
 
   static final String SYSTEM_CATEGORY_FORMAT = "system.%s.%s";
@@ -108,7 +107,7 @@ public interface PubberHost extends ManagerHost {
 
   Config getDeviceConfig();
 
-  DeviceManager getDeviceManager();
+  DeviceManagerProvider getDeviceManager();
 
   MqttDevice getDeviceTarget();
 
@@ -187,6 +186,16 @@ public interface PubberHost extends ManagerHost {
 
   void markStateDirty(long delayMs);
 
+  /**
+   * Publishes a dirty state by resetting the internal state flag to clean.
+   *
+   */
+  default void publishDirtyState() {
+    if (getStateDirty().get()) {
+      debug("Publishing dirty state block");
+      markStateDirty(0);
+    }
+  }
 
   @Override
   default void update(Object update) {
@@ -594,8 +603,9 @@ public interface PubberHost extends ManagerHost {
 
   String getAttemptedEndpoint();
 
-  void notice(String startingNewEndpointGeneration);
-
+  default void notice(String message) {
+    cloudLog(message, Level.NOTICE);
+  }
 
   private String redirectedEndpoint(String redirectRegistry) {
     try {
@@ -867,6 +877,21 @@ public interface PubberHost extends ManagerHost {
     }
   }
 
+  /**
+   * Initializes the system by calling {@link #initializeDevice()} and {@link #initializeMqtt()}.
+   *
+   * @throws RuntimeException if initialization fails due to an unrecoverable error.
+   */
+  default void initialize() {
+    try {
+      initializeDevice();
+      initializeMqtt();
+    } catch (Exception e) {
+      shutdown();
+      throw new RuntimeException("While initializing main pubber class", e);
+    }
+  }
+
   default void debug(String message, String detail) {
     cloudLog(message, Level.DEBUG, detail);
   }
@@ -881,6 +906,15 @@ public interface PubberHost extends ManagerHost {
 
   void startConnection(Function<String, Boolean> connectionDone);
 
+  /**
+   * Flushes the dirty state by publishing an asynchronous state change.
+   */
+  default void flushDirtyState() {
+    if (getStateDirty().get()) {
+      publishAsynchronousState();
+    }
+  }
+
   byte[] ensureKeyBytes();
 
   void publisherException(Exception toReport);
@@ -890,6 +924,26 @@ public interface PubberHost extends ManagerHost {
   void resetConnection(String targetEndpoint);
 
   String traceTimestamp(String messageBase);
+
+  /**
+   * Configures a wait time for the configuration latch and waits until it is acquired.
+   *
+   * @throws RuntimeException if the configuration latch is not acquired within the
+   *         specified or default wait time.
+   */
+  default void configLatchWait() {
+    try {
+      int waitTimeSec = ofNullable(getConfig().endpoint.config_sync_sec)
+          .orElse(DEFAULT_CONFIG_WAIT_SEC);
+      int useWaitTime = waitTimeSec == 0 ? DEFAULT_CONFIG_WAIT_SEC : waitTimeSec;
+      warn(format("Start waiting %ds for config latch for %s", useWaitTime, getDeviceId()));
+      if (useWaitTime > 0 && !getConfigLatch().await(useWaitTime, TimeUnit.SECONDS)) {
+        throw new RuntimeException("Config latch timeout");
+      }
+    } catch (Exception e) {
+      throw new RuntimeException(format("While waiting for %s config latch", getDeviceId()), e);
+    }
+  }
 
   void shutdown();
 

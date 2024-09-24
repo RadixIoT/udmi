@@ -5,6 +5,8 @@ import static com.google.udmi.util.GeneralUtils.friendlyStackTrace;
 import static java.lang.String.format;
 
 import daq.pubber.client.DeviceManagerProvider;
+import daq.pubber.client.ProxyDeviceHostProvider;
+import daq.pubber.client.PubberHostProvider;
 import java.util.concurrent.atomic.AtomicBoolean;
 import udmi.schema.Config;
 import udmi.schema.Metadata;
@@ -13,7 +15,7 @@ import udmi.schema.PubberConfiguration;
 /**
  * Wrapper for a complete device construct.
  */
-public class ProxyDevice extends ManagerBase implements ManagerHost {
+public class ProxyDevice extends ManagerBase implements ProxyDeviceHostProvider {
 
   final DeviceManager deviceManager;
   final Pubber pubberHost;
@@ -35,7 +37,8 @@ public class ProxyDevice extends ManagerBase implements ManagerHost {
     return proxyConfiguration;
   }
 
-  protected void activate() {
+  @Override
+  public void activate() {
     try {
       active.set(false);
       MqttDevice mqttDevice = pubberHost.getMqttDevice(deviceId);
@@ -49,7 +52,8 @@ public class ProxyDevice extends ManagerBase implements ManagerHost {
     }
   }
 
-  void configHandler(Config config) {
+  @Override
+  public void configHandler(Config config) {
     pubberHost.configPreprocess(deviceId, config);
     deviceManager.updateConfig(config);
     pubberHost.publisherConfigLog("apply", null, deviceId);
@@ -83,11 +87,27 @@ public class ProxyDevice extends ManagerBase implements ManagerHost {
     return host.getLocalnetProvider(family);
   }
 
+  @Override
   public void setMetadata(Metadata metadata) {
     deviceManager.setMetadata(metadata);
   }
 
   public DeviceManagerProvider getDeviceManager() {
     return deviceManager;
+  }
+
+  @Override
+  public PubberHostProvider getPubberHost() {
+    return pubberHost;
+  }
+
+  @Override
+  public ManagerHost getManagerHost() {
+    return host;
+  }
+
+  @Override
+  public AtomicBoolean isActive() {
+    return active;
   }
 }
