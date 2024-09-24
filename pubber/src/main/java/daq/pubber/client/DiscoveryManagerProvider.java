@@ -15,12 +15,10 @@ import static udmi.schema.FamilyDiscoveryState.Phase.PENDING;
 import static udmi.schema.FamilyDiscoveryState.Phase.STOPPED;
 
 import com.google.udmi.util.SiteModel;
-import daq.pubber.ManagerLog;
 import java.time.Instant;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ScheduledFuture;
 import java.util.function.Supplier;
 import udmi.schema.Depths;
 import udmi.schema.DiscoveryConfig;
@@ -31,16 +29,20 @@ import udmi.schema.FamilyDiscoveryState;
 /**
  * Discovery client.
  */
-public interface DiscoveryManagerProvider extends ManagerLog {
+public interface DiscoveryManagerProvider extends ManagerProvider {
 
-
-  private static boolean shouldEnumerateTo(Depths.Depth depth) {
+  /**
+   * Determines whether enumeration to a specific depth level is required.
+   *
+   * @param depth The depth level for which to determine if enumeration should occur.
+   * @return True if enumeration is required at the specified depth level, false otherwise.
+   */
+  static boolean shouldEnumerateTo(Depths.Depth depth) {
     return ifNullElse(depth, false, d -> switch (d) {
       default -> false;
       case ENTRIES, DETAILS -> true;
     });
   }
-
 
   default  <K, V> Map<K, V> maybeEnumerate(Depths.Depth depth, Supplier<Map<K, V>> supplier) {
     return ifTrueGet(shouldEnumerateTo(depth), supplier);
@@ -132,7 +134,7 @@ public interface DiscoveryManagerProvider extends ManagerLog {
     updateState();
   }
 
-  private FamilyDiscoveryState getFamilyDiscoveryState(String family) {
+  default FamilyDiscoveryState getFamilyDiscoveryState(String family) {
     return getDiscoveryState().families.get(family);
   }
 
@@ -167,7 +169,9 @@ public interface DiscoveryManagerProvider extends ManagerLog {
     }
   }
 
-  void updateState();
+  default void updateState() {
+    updateState(ofNullable((Object) getDiscoveryState()).orElse(DiscoveryState.class));
+  }
 
   /**
    * Update the discovery config.
@@ -194,6 +198,11 @@ public interface DiscoveryManagerProvider extends ManagerLog {
         catchToNull(() -> getFamilyDiscoveryConfig(family).scan_interval_sec)).orElse(0);
   }
 
+
+  default boolean shouldEnumerate(String family) {
+    return shouldEnumerateTo(getFamilyDiscoveryConfig(family).depth);
+  }
+
   Date getDeviceStartTime();
 
   void setSiteModel(SiteModel siteModel);
@@ -206,7 +215,7 @@ public interface DiscoveryManagerProvider extends ManagerLog {
 
   void setDiscoveryConfig(DiscoveryConfig discoveryConfig);
 
-  ScheduledFuture<?> scheduleFuture(Date startGeneration, Runnable runnable);
+  void scheduleFuture(Date startGeneration, Runnable runnable);
 
   void startDiscoveryScan(String family, Date scanGeneration);
 

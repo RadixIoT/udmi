@@ -13,6 +13,7 @@ import static udmi.schema.Category.GATEWAY_PROXY_TARGET;
 
 import com.google.udmi.util.SiteModel;
 import daq.pubber.client.GatewayManagerProvider;
+import daq.pubber.client.ProxyDeviceHostProvider;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,9 +34,7 @@ import udmi.schema.PubberConfiguration;
  */
 public class GatewayManager extends ManagerBase implements GatewayManagerProvider {
 
-  private static final String EXTRA_PROXY_DEVICE = "XXX-1";
-  private static final String EXTRA_PROXY_POINT = "xxx_conflagration";
-  private Map<String, ProxyDevice> proxyDevices;
+  private Map<String, ProxyDeviceHostProvider> proxyDevices;
   private SiteModel siteModel;
   private Metadata metadata;
   private GatewayState gatewayState;
@@ -45,41 +44,13 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
   }
 
   /**
-   * Creates a map of proxy devices.
-   *
-   * @param proxyIds A list of device IDs to create proxies for.
-   * @return A map where each key-value pair represents a device ID and its corresponding proxy
-   * @throws NoSuchElementException if no first element exists in the stream
-   */
-  public Map<String, ProxyDevice> createProxyDevices(List<String> proxyIds) {
-    if (proxyIds == null) {
-      return Map.of();
-    }
-
-    Map<String, ProxyDevice> devices = new HashMap<>();
-    if (!proxyIds.isEmpty()) {
-      String firstId = proxyIds.stream().sorted().findFirst().orElseThrow();
-      String noProxyId = ifTrueGet(isTrue(options.noProxy), () -> firstId);
-      ifNotNullThen(noProxyId, id -> warn(format("Not proxying device %s", noProxyId)));
-      proxyIds.forEach(id -> {
-        if (!id.equals(noProxyId)) {
-          devices.put(id, new ProxyDevice(host, id, config));
-        }
-      });
-    }
-
-    ifTrueThen(options.extraDevice, () -> devices.put(EXTRA_PROXY_DEVICE, makeExtraDevice()));
-
-    return devices;
-  }
-
-  /**
    * Publish log message for target device.
    */
+  @Override
   public void publishLogMessage(Entry logEntry, String targetId) {
     ifNotNullThen(proxyDevices, p -> p.values().forEach(pd -> {
       if (pd.getDeviceId().equals(targetId)) {
-        pd.deviceManager.publishLogMessage(logEntry, targetId);
+        pd.getDeviceManager().publishLogMessage(logEntry, targetId);
       }
     }));
   }
@@ -89,13 +60,17 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
     proxyDevices = ifNotNullGet(metadata.gateway, g -> createProxyDevices(g.proxy_ids));
   }
 
-  public void activate() {
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDevice::activate));
+
+  @Override
+  public ProxyDeviceHostProvider makeExtraDevice() {
+    return new ProxyDevice(getHost(), EXTRA_PROXY_DEVICE, getConfig());
   }
 
-  ProxyDevice makeExtraDevice() {
-    return new ProxyDevice(host, EXTRA_PROXY_DEVICE, config);
+  @Override
+  public void activate() {
+    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDeviceHostProvider::activate));
   }
+
 
   /**
    * Update gateway operation based off of a gateway configuration block.
@@ -132,6 +107,7 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
    * @param message A detailed description of the status. This provides more information about the
    *                current state of the gateway or any issues it may have encountered.
    */
+  @Override
   public void setGatewayStatus(String category, Level level, String message) {
     // TODO: Implement a map or tree or something to properly handle different error sources.
     gatewayState.status = new Entry();
@@ -140,53 +116,17 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
     gatewayState.status.message = message;
   }
 
-  /**
-   * Updates the state of the gateway.
-   */
-  public void updateState() {
-    updateState(ofNullable((Object) gatewayState).orElse(GatewayState.class));
-  }
-
-  /**
-   * Validates the given gateway family.
-   *
-   * @param family The gateway family to validate.
-   * @return The validated family if successful; otherwise, null.
-   * @throws NullPointerException If the address for the specified family is null or undefined.
-   */
-  public String validateGatewayFamily(String family) {
-    if (family == null) {
-      return null;
-    }
-    debug("Validating gateway family " + family);
-    Objects.requireNonNull(catchToNull(() -> metadata.localnet.families.get(family).addr),
-        format("Address family %s addr is null or undefined", family));
-    return family;
-  }
-
-  /**
-   * Configures the extra device with default settings.
-   *
-   */
-  public void configExtraDevice() {
-    Config config = new Config();
-    config.pointset = new PointsetConfig();
-    config.pointset.points = new HashMap<>();
-    PointPointsetConfig pointPointsetConfig = new PointPointsetConfig();
-    config.pointset.points.put(EXTRA_PROXY_POINT, pointPointsetConfig);
-    proxyDevices.get(EXTRA_PROXY_DEVICE).configHandler(config);
-  }
 
   @Override
   public void shutdown() {
     super.shutdown();
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDevice::shutdown));
+    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDeviceHostProvider::shutdown));
   }
 
   @Override
   public void stop() {
     super.stop();
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDevice::stop));
+    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDeviceHostProvider::stop));
   }
 
   public void setSiteModel(SiteModel siteModel) {
@@ -194,7 +134,7 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
     processMetadata();
   }
 
-  private void processMetadata() {
+  void processMetadata() {
     ifNotNullThen(proxyDevices, p -> p.values().forEach(proxy -> {
       Metadata localMetadata = ifNotNullGet(siteModel, s -> s.getMetadata(proxy.getDeviceId()));
       localMetadata = ofNullable(localMetadata).orElse(new Metadata());
@@ -213,7 +153,7 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
   }
 
   @Override
-  public Map<String, ProxyDevice> getProxyDevices() {
+  public Map<String, ProxyDeviceHostProvider> getProxyDevices() {
     return proxyDevices;
   }
 }

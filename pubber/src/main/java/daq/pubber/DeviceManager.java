@@ -130,6 +130,18 @@ public class DeviceManager extends ManagerBase implements DeviceManagerProvider 
   }
 
   /**
+   * Shutdown everything, including sub-managers.
+   */
+  @Override
+  public void shutdown() {
+    getSystemManager().shutdown();
+    getPointsetManager().shutdown();
+    getLocalnetManager().shutdown();
+    getGatewayManager().shutdown();
+  }
+
+
+  /**
    * Stop periodic senders.
    */
   @Override
@@ -138,10 +150,6 @@ public class DeviceManager extends ManagerBase implements DeviceManagerProvider 
     localnetManager.stop();
     gatewayManager.stop();
     systemManager.stop();
-  }
-
-  public Map<String, FamilyDiscovery> enumerateFamilies() {
-    return localnetManager.enumerateFamilies();
   }
 
   /**
@@ -153,7 +161,4 @@ public class DeviceManager extends ManagerBase implements DeviceManagerProvider 
     localnetManager.setSiteModel(siteModel);
   }
 
-  public FamilyProvider getLocalnetProvider(String family) {
-    return localnetManager.getLocalnetProvider(family);
-  }
 }

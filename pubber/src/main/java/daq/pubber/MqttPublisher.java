@@ -21,7 +21,7 @@ import com.google.udmi.util.CertManager;
 import com.google.udmi.util.NanSerializer;
 import com.google.udmi.util.SiteModel;
 import com.google.udmi.util.SiteModel.ClientInfo;
-import daq.pubber.client.PubberHost;
+import daq.pubber.client.PubberHostProvider;
 import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
@@ -606,7 +606,7 @@ public class MqttPublisher implements Publisher {
   }
 
   private String getGatewayId(String targetId) {
-    return PubberHost.getGatewayId(targetId, configuration);
+    return PubberHostProvider.getGatewayId(targetId, configuration);
   }
 
   /**

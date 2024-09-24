@@ -45,32 +45,11 @@ import udmi.schema.SystemEvents;
  */
 public class SystemManager extends ManagerBase implements SystemManagerProvider {
 
-  public static final String PUBBER_LOG_CATEGORY = "device.log";
   public static final String PUBBER_LOG = "pubber.log";
-  private static final long BYTES_PER_MEGABYTE = 1024 * 1024;
-  private static final String DEFAULT_MAKE = "bos";
-  private static final String DEFAULT_MODEL = "pubber";
-  private static final String DEFAULT_SOFTWARE_KEY = "firmware";
-  private static final String DEFAULT_SOFTWARE_VALUE = "v1";
   private static final Date DEVICE_START_TIME = Pubber.DEVICE_START_TIME;
-  private static final Map<SystemMode, Integer> EXIT_CODE_MAP = ImmutableMap.of(
-      SystemMode.SHUTDOWN, 0, // Indicates expected clean shutdown (success).
-      SystemMode.RESTART, 192, // Indicate process to be explicitly restarted.
-      SystemMode.TERMINATE, 193); // Indicates expected shutdown (failure code).
-  private static final Integer UNKNOWN_MODE_EXIT_CODE = -1;
-  private static final Logger LOG = Pubber.LOG;
-  public static final Map<Level, Consumer<String>> LOG_MAP =
-      ImmutableMap.<Level, Consumer<String>>builder()
-          .put(Level.TRACE, LOG::info) // TODO: Make debug/trace programmatically visible.
-          .put(Level.DEBUG, LOG::info)
-          .put(Level.INFO, LOG::info)
-          .put(Level.NOTICE, LOG::info)
-          .put(Level.WARNING, LOG::warn)
-          .put(Level.ERROR, LOG::error)
-          .build();
+
   private final List<Entry> logentries = new ArrayList<>();
   private final ExtraSystemState systemState;
-  private final ManagerHost host;
   private int systemEventCount;
   private SystemConfig systemConfig;
   private boolean publishingLog;
@@ -80,7 +59,6 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
    */
   public SystemManager(ManagerHost host, PubberConfiguration configuration) {
     super(host, configuration);
-    this.host = host;
 
     if (host instanceof Pubber pubberHost) {
       initializeLogger(pubberHost);
@@ -160,76 +138,10 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
     return this.systemState;
   }
 
-  /**
-   * Retrieves the system events.
-   *
-   * @return the system events.
-   */
-  @Override
-  public SystemEvents getSystemEvent() {
-    SystemEvents systemEvent = new SystemEvents();
-    systemEvent.last_config = systemState.last_config;
-    return systemEvent;
-  }
-
-
-  @Override
-  public void maybeRestartSystem() {
-    SystemConfig system = ofNullable(systemConfig).orElseGet(SystemConfig::new);
-    Operation operation = ofNullable(system.operation).orElseGet(Operation::new);
-    SystemMode configMode = operation.mode;
-    SystemMode stateMode = systemState.operation.mode;
-
-    if (SystemMode.ACTIVE.equals(stateMode)
-        && SystemMode.RESTART.equals(configMode)) {
-      error("System mode requesting device restart");
-      systemLifecycle(SystemMode.RESTART);
-    }
-
-    if (SystemMode.ACTIVE.equals(configMode)) {
-      systemState.operation.mode = SystemMode.ACTIVE;
-      updateState();
-    }
-
-    Date configLastStart = operation.last_start;
-    if (configLastStart != null) {
-      if (DEVICE_START_TIME.before(configLastStart)) {
-        error(format("Device start time %s before last config start %s, terminating.",
-            isoConvert(DEVICE_START_TIME), isoConvert(configLastStart)));
-        systemLifecycle(SystemMode.TERMINATE);
-      } else if (isTrue(options.smokeCheck)
-          && CleanDateFormat.dateEquals(DEVICE_START_TIME, configLastStart)) {
-        error(format("Device start time %s matches, smoke check indicating success!",
-            isoConvert(configLastStart)));
-        systemLifecycle(SystemMode.SHUTDOWN);
-      }
-    }
-  }
 
   @Override
   public Date getDeviceStartTime() {
     return DEVICE_START_TIME;
-  }
-
-  public void updateState() {
-    host.update(systemState);
-  }
-
-  /**
-   * Send a system event.
-   *
-   */
-  public void sendSystemEvent() {
-    SystemEvents systemEvent = getSystemEvent();
-    systemEvent.metrics = new Metrics();
-    Runtime runtime = Runtime.getRuntime();
-    systemEvent.metrics.mem_free_mb = (double) runtime.freeMemory() / BYTES_PER_MEGABYTE;
-    systemEvent.metrics.mem_total_mb = (double) runtime.totalMemory() / BYTES_PER_MEGABYTE;
-    systemEvent.metrics.store_total_mb = Double.NaN;
-    systemEvent.event_count = systemEventCount++;
-    ifNotTrueThen(options.noLog, () -> systemEvent.logentries = ImmutableList.copyOf(logentries));
-    logentries.clear();
-    host.publish(systemEvent);
   }
 
   @Override
@@ -250,20 +162,6 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
     System.exit(exitCode);
   }
 
-  @Override
-  public void  updateConfig(SystemConfig system, Date timestamp) {
-    Integer oldBase = catchToNull(() -> systemConfig.testing.config_base);
-    Integer newBase = catchToNull(() -> system.testing.config_base);
-    if (oldBase != null && oldBase.equals(newBase)
-        && !stringify(systemConfig).equals(stringify(system))) {
-      error("Panic! Duplicate config_base detected: " + oldBase);
-      System.exit(-22);
-    }
-    systemConfig = system;
-    systemState.last_config = ifNotTrueGet(options.noLastConfig, () -> timestamp);
-    updateInterval(ifNotNullGet(system, config -> config.metrics_rate_sec));
-    updateState();
-  }
 
   /**
    * Check if we should log at the level provided.
@@ -279,25 +177,6 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
 
     Integer minLoglevel = ifNotNullGet(systemConfig, config -> systemConfig.min_loglevel);
     return level >= requireNonNullElse(minLoglevel, Level.INFO.value());
-  }
-
-  @Override
-  public void cloudLog(String message, Level level, String detail) {
-    String timestamp = getTimestamp();
-    localLog(message, level, timestamp, detail);
-
-    if (publishingLog) {
-      return;
-    }
-
-    try {
-      publishingLog = true;
-      pubberLogMessage(message, level, timestamp, detail);
-    } catch (Exception e) {
-      localLog("Error publishing log message: " + e, Level.ERROR, timestamp, null);
-    } finally {
-      publishingLog = false;
-    }
   }
 
   @Override
@@ -321,18 +200,7 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
     }
   }
 
-  /**
-   * Log a message.
-   */
-  public void pubberLogMessage(String logMessage, Level level, String timestamp, String detail) {
-    Entry logEntry = new Entry();
-    logEntry.category = PUBBER_LOG_CATEGORY;
-    logEntry.level = level.value();
-    logEntry.timestamp = Date.from(Instant.parse(timestamp));
-    logEntry.message = logMessage;
-    logEntry.detail = detail;
-    publishLogMessage(logEntry);
-  }
+
 
   @Override
   public List<Entry> getLogentries() {
@@ -352,5 +220,20 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
   @Override
   public SystemConfig getSystemConfig() {
     return systemConfig;
+  }
+
+  @Override
+  public void setSystemConfig(SystemConfig systemConfig) {
+    this.systemConfig = systemConfig;
+  }
+
+  @Override
+  public int incrementSystemEventCount() {
+    return systemEventCount++;
+  }
+
+  @Override
+  public void setPublishingLog(boolean publishingLog) {
+    this.publishingLog = publishingLog;
   }
 }
