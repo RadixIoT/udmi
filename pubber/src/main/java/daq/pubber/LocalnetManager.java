@@ -36,10 +36,6 @@ public class LocalnetManager extends ManagerBase implements LocalnetManagerProvi
     return this.localnetState;
   }
 
-  protected void update(String family, FamilyLocalnetState stateEntry) {
-    localnetState.families.put(family, stateEntry);
-    updateState();
-  }
 
   @Override
   public LocalnetConfig getLocalnetConfig() {

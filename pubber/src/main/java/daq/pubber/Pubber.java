@@ -678,20 +678,6 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
     return messageBase + (isTrue(config.options.messageTrace) ? ("_" + timestamp) : "");
   }
 
-  private void cloudLog(String message, Level level) {
-    cloudLog(message, level, null);
-  }
-
-  private void cloudLog(String message, Level level, String detail) {
-    if (deviceManager != null) {
-      deviceManager.cloudLog(message, level, detail);
-    } else {
-      String detailPostfix = detail == null ? "" : ":\n" + detail;
-      String logMessage = format("%s%s", message, detailPostfix);
-      LOG_MAP.get(level).accept(logMessage);
-    }
-  }
-
   private void trace(String message) {
     cloudLog(message, Level.TRACE);
   }
