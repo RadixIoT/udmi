@@ -11,6 +11,7 @@ import daq.pubber.ProtocolFamily;
 import daq.pubber.VendorProvider;
 import java.util.Map;
 import udmi.schema.FamilyDiscovery;
+import udmi.schema.FamilyLocalnetState;
 import udmi.schema.LocalnetConfig;
 import udmi.schema.LocalnetState;
 import udmi.schema.PubberConfiguration;
@@ -55,6 +56,14 @@ public interface LocalnetManagerProvider extends ManagerHost, ManagerProvider {
 
   default void update(Object update) {
     throw new RuntimeException("Not yet implemented");
+  }
+
+  /**
+   * Update family state.
+   */
+  default void update(String family, FamilyLocalnetState stateEntry) {
+    getLocalnetState().families.put(family, stateEntry);
+    updateState();
   }
 
   /**

@@ -863,11 +863,14 @@ public interface PubberHostProvider extends ManagerHost {
 
   SchemaVersion getTargetSchema();
 
-  private void cloudLog(String message, Level level) {
+  default void cloudLog(String message, Level level) {
     cloudLog(message, level, null);
   }
 
-  private void cloudLog(String message, Level level, String detail) {
+  /**
+   * Cloud log.
+   */
+  default void cloudLog(String message, Level level, String detail) {
     if (getDeviceManager() != null) {
       getDeviceManager().cloudLog(message, level, detail);
     } else {
