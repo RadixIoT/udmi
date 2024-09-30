@@ -20,6 +20,8 @@ public interface ManagerProvider extends ManagerLog {
 
   void updateInterval(Integer sampleRateSec);
 
+  void periodicUpdate();
+
   void stop();
 
   void shutdown();

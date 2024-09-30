@@ -1,10 +1,12 @@
 package daq.pubber.client;
 
+import static com.google.udmi.util.GeneralUtils.catchToNull;
 import static com.google.udmi.util.GeneralUtils.deepCopy;
 import static com.google.udmi.util.GeneralUtils.fromJsonString;
 import static com.google.udmi.util.GeneralUtils.getNow;
 import static com.google.udmi.util.GeneralUtils.getTimestamp;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
+import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.GeneralUtils.isGetTrue;
 import static com.google.udmi.util.GeneralUtils.isTrue;
@@ -42,9 +44,13 @@ import daq.pubber.client.SystemManagerProvider.ExtraSystemState;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -98,10 +104,22 @@ public interface PubberHostProvider extends ManagerHost {
           .put(DiscoveryEvents.class, PubberHostProvider.getEventsSuffix("discovery"))
           .build();
 
+
+  static final Map<String, String> INVALID_REPLACEMENTS = ImmutableMap.of(
+      "events/blobset", "\"\"",
+      "events/discovery", "{}",
+      "events/mapping", "{ NOT VALID JSON!"
+  );
+  static final List<String> INVALID_KEYS = new ArrayList<>(INVALID_REPLACEMENTS.keySet());
   static final String SYSTEM_CATEGORY_FORMAT = "system.%s.%s";
   static final int STATE_THROTTLE_MS = 2000;
   static final int FORCED_STATE_TIME_MS = 10000;
   static final int DEFAULT_REPORT_SEC = 10;
+  static final int MESSAGE_REPORT_INTERVAL = 10;
+  static final long INJECT_MESSAGE_DELAY_MS = 2000; // Delay to make sure testing is stable.
+  static final String CORRUPT_STATE_MESSAGE = "!&*@(!*&@!";
+
+  static final Date DEVICE_START_TIME = PubberHostProvider.getRoundedStartTime();
 
   State getDeviceState();
 
@@ -480,6 +498,87 @@ public interface PubberHostProvider extends ManagerHost {
   }
 
   void updateInterval(Integer defaultReportSec);
+
+  /**
+   * Check smoky failure.
+   */
+  default void checkSmokyFailure() {
+    if (isTrue(getConfig().options.smokeCheck)
+        && Instant.now().minus(SMOKE_CHECK_TIME).isAfter(DEVICE_START_TIME.toInstant())) {
+      error(format("Smoke check failed after %sm, terminating run.",
+          SMOKE_CHECK_TIME.getSeconds() / 60));
+      getDeviceManager().systemLifecycle(SystemMode.TERMINATE);
+    }
+  }
+
+
+  /**
+   * Deferred config actions.
+   */
+  default void deferredConfigActions() {
+    if (!isConnected()) {
+      return;
+    }
+
+    getDeviceManager().maybeRestartSystem();
+
+    // Do redirect after restart system check, since this might take a long time.
+    maybeRedirectEndpoint();
+  }
+
+
+  /**
+   * For testing, if configured, send a slate of bad messages for testing by the message handling
+   * infrastructure. Uses the sekrit REPLACE_MESSAGE_WITH field to sneak bad output into the pipe.
+   * E.g., Will send a message with "{ INVALID JSON!" as a message payload. Inserts a delay before
+   * each message sent to stabilize the output order for testing purposes.
+   */
+  default void sendEmptyMissingBadEvents() {
+    int phase = getDeviceUpdateCount() % MESSAGE_REPORT_INTERVAL;
+    if (!isTrue(getConfig().options.emptyMissing)
+        || (phase >= INVALID_REPLACEMENTS.size() + 2)) {
+      return;
+    }
+
+    safeSleep(INJECT_MESSAGE_DELAY_MS);
+
+    if (phase == 0) {
+      flushDirtyState();
+      InjectedState invalidState = new InjectedState();
+      invalidState.REPLACE_MESSAGE_WITH = CORRUPT_STATE_MESSAGE;
+      warn("Sending badly formatted state as per configuration");
+      publishStateMessage(invalidState);
+    } else if (phase == 1) {
+      InjectedMessage invalidEvent = new InjectedMessage();
+      invalidEvent.field = "bunny";
+      warn("Sending badly formatted message type");
+      publishDeviceMessage(invalidEvent);
+    } else {
+      String key = INVALID_KEYS.get(phase - 2);
+      InjectedMessage replacedEvent = new InjectedMessage();
+      replacedEvent.REPLACE_TOPIC_WITH = key;
+      replacedEvent.REPLACE_MESSAGE_WITH = INVALID_REPLACEMENTS.get(key);
+      warn("Sending badly formatted message of type " + key);
+      publishDeviceMessage(replacedEvent);
+    }
+    safeSleep(INJECT_MESSAGE_DELAY_MS);
+  }
+
+  /**
+   * Maybe tweak state.
+   */
+  default void maybeTweakState() {
+    if (!isTrue(getOptions().tweakState)) {
+      return;
+    }
+    int phase = getDeviceUpdateCount() % 2;
+    String randomValue = format("%04x", System.currentTimeMillis() % 0xffff);
+    if (phase == 0) {
+      catchToNull(() -> getDeviceState().system.software.put("random", randomValue));
+    } else if (phase == 1) {
+      ifNotNullThen(getDeviceState().pointset, state -> state.state_etag = randomValue);
+    }
+  }
 
   Lock getStateLock();
 
@@ -955,4 +1054,8 @@ public interface PubberHostProvider extends ManagerHost {
   PubberConfiguration getConfig();
 
   String getDeviceId();
+
+  boolean isConnected();
+
+  int getDeviceUpdateCount();
 }
