@@ -119,6 +119,7 @@ public abstract class ManagerBase implements ManagerProvider {
     }
   }
 
+  @Override
   public void periodicUpdate() {
     throw new IllegalStateException("No periodic update handler defined");
   }

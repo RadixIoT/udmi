@@ -163,22 +163,6 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
   }
 
 
-  /**
-   * Check if we should log at the level provided.
-   *
-   * @param level the level.
-   * @return true if we can log at the level provided.
-   */
-  @Override
-  public boolean shouldLogLevel(int level) {
-    if (options.fixedLogLevel != null) {
-      return level >= options.fixedLogLevel;
-    }
-
-    Integer minLoglevel = ifNotNullGet(systemConfig, config -> systemConfig.min_loglevel);
-    return level >= requireNonNullElse(minLoglevel, Level.INFO.value());
-  }
-
   @Override
   public void localLog(String message, Level level, String timestamp, String detail) {
     String detailPostfix = detail == null ? "" : ":\n" + detail;

@@ -10,6 +10,7 @@ import static com.google.udmi.util.GeneralUtils.isTrue;
 import static com.google.udmi.util.JsonUtil.isoConvert;
 import static com.google.udmi.util.JsonUtil.stringify;
 import static java.lang.String.format;
+import static java.util.Objects.requireNonNullElse;
 import static java.util.Optional.ofNullable;
 
 import com.google.common.collect.ImmutableList;
@@ -234,7 +235,20 @@ public interface SystemManagerProvider extends ManagerLog, ManagerProvider {
     }
   }
 
-  boolean shouldLogLevel(int level);
+  /**
+   * Check if we should log at the level provided.
+   *
+   * @param level the level.
+   * @return true if we can log at the level provided.
+   */
+  default boolean shouldLogLevel(int level) {
+    if (getOptions().fixedLogLevel != null) {
+      return level >= getOptions().fixedLogLevel;
+    }
+
+    Integer minLoglevel = ifNotNullGet(getSystemConfig(), config -> getSystemConfig().min_loglevel);
+    return level >= requireNonNullElse(minLoglevel, Level.INFO.value());
+  }
 
   /**
    * Logs a message with specified level and detail. If publishing is enabled,
