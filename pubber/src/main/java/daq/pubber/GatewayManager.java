@@ -4,29 +4,19 @@ import static com.google.udmi.util.GeneralUtils.catchToNull;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifNullThen;
-import static com.google.udmi.util.GeneralUtils.ifTrueGet;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
-import static com.google.udmi.util.GeneralUtils.isTrue;
-import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
 import static udmi.schema.Category.GATEWAY_PROXY_TARGET;
 
 import com.google.udmi.util.SiteModel;
 import daq.pubber.client.GatewayManagerProvider;
 import daq.pubber.client.ProxyDeviceHostProvider;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Objects;
-import udmi.schema.Config;
 import udmi.schema.Entry;
 import udmi.schema.GatewayConfig;
 import udmi.schema.GatewayState;
 import udmi.schema.Level;
 import udmi.schema.Metadata;
-import udmi.schema.PointPointsetConfig;
-import udmi.schema.PointsetConfig;
 import udmi.schema.PubberConfiguration;
 
 /**
@@ -75,6 +65,7 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
   /**
    * Update gateway operation based off of a gateway configuration block.
    */
+  @Override
   public void updateConfig(GatewayConfig gateway) {
     if (gateway == null) {
       gatewayState = null;
@@ -155,5 +146,11 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
   @Override
   public Map<String, ProxyDeviceHostProvider> getProxyDevices() {
     return proxyDevices;
+  }
+
+  @Override
+  public ProxyDeviceHostProvider createProxyDevice(ManagerHost host, String id,
+      PubberConfiguration config) {
+    return new ProxyDevice(host, id, config);
   }
 }

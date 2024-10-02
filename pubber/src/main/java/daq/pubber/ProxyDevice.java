@@ -87,6 +87,7 @@ public class ProxyDevice extends ManagerBase implements ProxyDeviceHostProvider 
     deviceManager.setMetadata(metadata);
   }
 
+  @Override
   public DeviceManagerProvider getDeviceManager() {
     return deviceManager;
   }

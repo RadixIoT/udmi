@@ -22,7 +22,6 @@ import static daq.pubber.MqttDevice.CONFIG_TOPIC;
 import static daq.pubber.MqttDevice.ERRORS_TOPIC;
 import static daq.pubber.MqttDevice.STATE_TOPIC;
 import static daq.pubber.MqttPublisher.DEFAULT_CONFIG_WAIT_SEC;
-import static daq.pubber.SystemManager.LOG_MAP;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.Optional.ofNullable;
@@ -56,6 +55,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Lock;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import udmi.schema.BlobBlobsetConfig;
 import udmi.schema.BlobBlobsetConfig.BlobPhase;
@@ -87,12 +87,12 @@ import udmi.schema.SystemState;
  */
 public interface PubberHostProvider extends ManagerHost {
 
-  static final String DATA_URL_JSON_BASE64 = "data:application/json;base64,";
+  String DATA_URL_JSON_BASE64 = "data:application/json;base64,";
 
-  static final String BROKEN_VERSION = "1.4.";
-  static final String UDMI_VERSION = SchemaVersion.CURRENT.key();
-  static final Duration SMOKE_CHECK_TIME = Duration.ofMinutes(5);
-  static final ImmutableMap<Class<?>, String> MESSAGE_TOPIC_SUFFIX_MAP =
+  String BROKEN_VERSION = "1.4.";
+  String UDMI_VERSION = SchemaVersion.CURRENT.key();
+  Duration SMOKE_CHECK_TIME = Duration.ofMinutes(5);
+  ImmutableMap<Class<?>, String> MESSAGE_TOPIC_SUFFIX_MAP =
       new Builder<Class<?>, String>()
           .put(State.class, STATE_TOPIC)
           .put(ExtraSystemState.class, STATE_TOPIC) // Used for badState option
@@ -105,21 +105,21 @@ public interface PubberHostProvider extends ManagerHost {
           .build();
 
 
-  static final Map<String, String> INVALID_REPLACEMENTS = ImmutableMap.of(
+  Map<String, String> INVALID_REPLACEMENTS = ImmutableMap.of(
       "events/blobset", "\"\"",
       "events/discovery", "{}",
       "events/mapping", "{ NOT VALID JSON!"
   );
-  static final List<String> INVALID_KEYS = new ArrayList<>(INVALID_REPLACEMENTS.keySet());
-  static final String SYSTEM_CATEGORY_FORMAT = "system.%s.%s";
-  static final int STATE_THROTTLE_MS = 2000;
-  static final int FORCED_STATE_TIME_MS = 10000;
-  static final int DEFAULT_REPORT_SEC = 10;
-  static final int MESSAGE_REPORT_INTERVAL = 10;
-  static final long INJECT_MESSAGE_DELAY_MS = 2000; // Delay to make sure testing is stable.
-  static final String CORRUPT_STATE_MESSAGE = "!&*@(!*&@!";
+  List<String> INVALID_KEYS = new ArrayList<>(INVALID_REPLACEMENTS.keySet());
+  String SYSTEM_CATEGORY_FORMAT = "system.%s.%s";
+  int STATE_THROTTLE_MS = 2000;
+  int FORCED_STATE_TIME_MS = 10000;
+  int DEFAULT_REPORT_SEC = 10;
+  int MESSAGE_REPORT_INTERVAL = 10;
+  long INJECT_MESSAGE_DELAY_MS = 2000; // Delay to make sure testing is stable.
+  String CORRUPT_STATE_MESSAGE = "!&*@(!*&@!";
 
-  static final Date DEVICE_START_TIME = PubberHostProvider.getRoundedStartTime();
+  Date DEVICE_START_TIME = PubberHostProvider.getRoundedStartTime();
 
   State getDeviceState();
 
@@ -975,9 +975,11 @@ public interface PubberHostProvider extends ManagerHost {
     } else {
       String detailPostfix = detail == null ? "" : ":\n" + detail;
       String logMessage = format("%s%s", message, detailPostfix);
-      LOG_MAP.get(level).accept(logMessage);
+      getLogMap().get(level).accept(logMessage);
     }
   }
+
+  Map<Level, Consumer<String>> getLogMap();
 
   /**
    * Initializes the system by calling {@link #initializeDevice()} and {@link #initializeMqtt()}.
@@ -1017,7 +1019,7 @@ public interface PubberHostProvider extends ManagerHost {
     }
   }
 
-  byte[] ensureKeyBytes();
+  void ensureKeyBytes();
 
   void publisherException(Exception toReport);
 

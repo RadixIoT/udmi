@@ -7,11 +7,9 @@ import daq.pubber.client.GatewayManagerProvider;
 import daq.pubber.client.LocalnetManagerProvider;
 import daq.pubber.client.PointsetManagerProvider;
 import daq.pubber.client.SystemManagerProvider;
-import java.util.Map;
 import udmi.schema.Config;
 import udmi.schema.DevicePersistent;
 import udmi.schema.Entry;
-import udmi.schema.FamilyDiscovery;
 import udmi.schema.Level;
 import udmi.schema.Metadata;
 import udmi.schema.Operation.SystemMode;
@@ -41,6 +39,7 @@ public class DeviceManager extends ManagerBase implements DeviceManagerProvider 
     discoveryManager = new DiscoveryManager(host, configuration, this);
   }
 
+  @Override
   public void setPersistentData(DevicePersistent persistentData) {
     systemManager.setPersistentData(persistentData);
   }
@@ -48,32 +47,39 @@ public class DeviceManager extends ManagerBase implements DeviceManagerProvider 
   /**
    * Set the metadata for this device.
    */
+  @Override
   public void setMetadata(Metadata metadata) {
     pointsetManager.setPointsetModel(metadata.pointset);
     systemManager.setMetadata(metadata);
     gatewayManager.setMetadata(metadata);
   }
 
+  @Override
   public void activate() {
     gatewayManager.activate();
   }
 
+  @Override
   public void systemLifecycle(SystemMode mode) {
     systemManager.systemLifecycle(mode);
   }
 
+  @Override
   public void maybeRestartSystem() {
     systemManager.maybeRestartSystem();
   }
 
+  @Override
   public void localLog(Entry report) {
     systemManager.localLog(report);
   }
 
+  @Override
   public void localLog(String message, Level trace, String timestamp, String detail) {
     systemManager.localLog(message, trace, timestamp, detail);
   }
 
+  @Override
   public String getTestingTag() {
     return systemManager.getTestingTag();
   }
@@ -81,6 +87,7 @@ public class DeviceManager extends ManagerBase implements DeviceManagerProvider 
   /**
    * Update the config of this device.
    */
+  @Override
   public void updateConfig(Config config) {
     pointsetManager.updateConfig(config.pointset);
     systemManager.updateConfig(config.system, config.timestamp);
@@ -92,6 +99,7 @@ public class DeviceManager extends ManagerBase implements DeviceManagerProvider 
   /**
    * Publish log message for target device.
    */
+  @Override
   public void publishLogMessage(Entry logEntry, String targetId) {
     if (getDeviceId().equals(targetId)) {
       systemManager.publishLogMessage(logEntry);
@@ -100,6 +108,7 @@ public class DeviceManager extends ManagerBase implements DeviceManagerProvider 
     }
   }
 
+  @Override
   public void cloudLog(String message, Level level, String detail) {
     systemManager.cloudLog(message, level, detail);
   }
