@@ -21,7 +21,7 @@ import udmi.schema.PubberConfiguration;
  */
 public interface LocalnetManagerProvider extends ManagerHost, ManagerProvider {
 
-  static final Map<String, Class<? extends FamilyProvider>> LOCALNET_PROVIDERS =
+  Map<String, Class<? extends FamilyProvider>> LOCALNET_PROVIDERS =
       Map.of(
           ProtocolFamily.VENDOR, VendorProvider.class,
           ProtocolFamily.IPV_4, IpProvider.class,

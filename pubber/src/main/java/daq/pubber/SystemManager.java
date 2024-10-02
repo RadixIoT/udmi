@@ -3,42 +3,27 @@ package daq.pubber;
 import static com.google.udmi.util.GeneralUtils.catchOrElse;
 import static com.google.udmi.util.GeneralUtils.catchToNull;
 import static com.google.udmi.util.GeneralUtils.getTimestamp;
-import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
-import static com.google.udmi.util.GeneralUtils.ifNotTrueGet;
-import static com.google.udmi.util.GeneralUtils.ifNotTrueThen;
 import static com.google.udmi.util.GeneralUtils.isTrue;
 import static com.google.udmi.util.JsonUtil.isoConvert;
-import static com.google.udmi.util.JsonUtil.stringify;
 import static java.lang.String.format;
-import static java.util.Objects.requireNonNullElse;
-import static java.util.Optional.ofNullable;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.udmi.util.CleanDateFormat;
 import daq.pubber.client.SystemManagerProvider;
 import java.io.File;
 import java.io.PrintStream;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Consumer;
-import org.slf4j.Logger;
 import udmi.schema.Entry;
 import udmi.schema.Level;
 import udmi.schema.Metadata;
-import udmi.schema.Metrics;
-import udmi.schema.Operation;
 import udmi.schema.Operation.SystemMode;
 import udmi.schema.PubberConfiguration;
 import udmi.schema.StateSystemHardware;
 import udmi.schema.StateSystemOperation;
 import udmi.schema.SystemConfig;
-import udmi.schema.SystemEvents;
 
 /**
  * Support manager for system stuff.

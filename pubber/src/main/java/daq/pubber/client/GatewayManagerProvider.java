@@ -9,6 +9,7 @@ import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
 
 import com.google.udmi.util.SiteModel;
+import daq.pubber.ManagerHost;
 import daq.pubber.ProxyDevice;
 import java.util.HashMap;
 import java.util.List;
@@ -23,14 +24,15 @@ import udmi.schema.Level;
 import udmi.schema.Metadata;
 import udmi.schema.PointPointsetConfig;
 import udmi.schema.PointsetConfig;
+import udmi.schema.PubberConfiguration;
 
 /**
  * Gateway client.
  */
 public interface GatewayManagerProvider extends ManagerProvider {
 
-  static final String EXTRA_PROXY_DEVICE = "XXX-1";
-  static final String EXTRA_PROXY_POINT = "xxx_conflagration";
+  String EXTRA_PROXY_DEVICE = "XXX-1";
+  String EXTRA_PROXY_POINT = "xxx_conflagration";
   Metadata getMetadata();
 
   void setMetadata(Metadata metadata);
@@ -58,7 +60,7 @@ public interface GatewayManagerProvider extends ManagerProvider {
       ifNotNullThen(noProxyId, id -> warn(format("Not proxying device %s", noProxyId)));
       proxyIds.forEach(id -> {
         if (!id.equals(noProxyId)) {
-          devices.put(id, new ProxyDevice(getHost(), id, getConfig()));
+          devices.put(id, createProxyDevice(getHost(), id, getConfig()));
         }
       });
     }
@@ -67,6 +69,9 @@ public interface GatewayManagerProvider extends ManagerProvider {
 
     return devices;
   }
+
+  ProxyDeviceHostProvider createProxyDevice(ManagerHost host, String id,
+      PubberConfiguration config);
 
   ProxyDeviceHostProvider makeExtraDevice();
 

@@ -17,7 +17,6 @@ import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.GeneralUtils.isTrue;
 import static com.google.udmi.util.GeneralUtils.optionsString;
 import static com.google.udmi.util.GeneralUtils.setClockSkew;
-import static com.google.udmi.util.GeneralUtils.sha256;
 import static com.google.udmi.util.GeneralUtils.stackTraceString;
 import static com.google.udmi.util.GeneralUtils.toJsonFile;
 import static com.google.udmi.util.GeneralUtils.toJsonString;
@@ -61,6 +60,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import org.apache.http.ConnectionClosedException;
 import org.slf4j.Logger;
@@ -515,14 +515,13 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
   }
 
   @Override
-  public byte[] ensureKeyBytes() {
+  public void ensureKeyBytes() {
     if (config.keyBytes == null) {
       checkNotNull(config.keyFile, "configuration keyFile not defined");
       info("Loading device key bytes from " + config.keyFile);
       config.keyBytes = getFileBytes(config.keyFile);
       config.keyFile = null;
     }
-    return (byte[]) config.keyBytes;
   }
 
 
@@ -727,5 +726,10 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
   @Override
   public int getDeviceUpdateCount() {
     return deviceUpdateCount;
+  }
+
+  @Override
+  public Map<Level, Consumer<String>> getLogMap() {
+    return LOG_MAP;
   }
 }
