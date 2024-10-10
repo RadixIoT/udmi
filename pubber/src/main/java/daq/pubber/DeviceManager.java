@@ -62,10 +62,10 @@ public class DeviceManager extends ManagerBase implements DeviceManagerProvider 
    */
   @Override
   public void shutdown() {
-    getSystemManager().shutdown();
-    getPointsetManager().shutdown();
-    getLocalnetManager().shutdown();
     getGatewayManager().shutdown();
+    getLocalnetManager().shutdown();
+    getPointsetManager().shutdown();
+    getSystemManager().shutdown();
   }
 
 
@@ -74,9 +74,9 @@ public class DeviceManager extends ManagerBase implements DeviceManagerProvider 
    */
   @Override
   public void stop() {
-    getPointsetManager().stop();
-    getLocalnetManager().stop();
     getGatewayManager().stop();
+    getLocalnetManager().stop();
+    getPointsetManager().stop();
     getSystemManager().stop();
   }
 
