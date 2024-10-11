@@ -16,6 +16,7 @@ plugins {
     id 'java'
     id 'jacoco'
     id 'checkstyle'
+    id 'maven-publish'
 }
 
 group 'daq-pubber'
@@ -73,6 +74,27 @@ repositories {
     mavenLocal()
     maven { url 'https://mvnrepository.com' }
     maven { url 'https://jitpack.io' }
+}
+
+publishing {
+    repositories {
+        maven {
+            url = "https://maven.pkg.github.com/radixiot/maven"
+            name = "GitHubPackages"
+            credentials {
+                username = findProperty("github.username")
+                password = findProperty("github.token")
+            }
+        }
+    }
+    publications {
+        mavenJava(MavenPublication) {
+            groupId = 'com.radixiot.udmi'
+            artifactId = 'pubber'
+            version = "1.5.1-radix-mango-1575.1"
+            from components.java
+        }
+    }
 }
 
 dependencies {
