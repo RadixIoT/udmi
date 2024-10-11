@@ -1,12 +1,9 @@
 package daq.pubber;
 
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
-import static com.google.udmi.util.GeneralUtils.ifNullElse;
-import static com.google.udmi.util.GeneralUtils.ifTrueGet;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.JsonUtil.isoConvert;
 import static daq.pubber.Pubber.DEVICE_START_TIME;
-import static java.lang.Math.floorMod;
 import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
 import static udmi.schema.FamilyDiscoveryState.Phase.ACTIVE;
@@ -21,7 +18,6 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import udmi.schema.Depths;
-import udmi.schema.Depths.Depth;
 import udmi.schema.DiscoveryConfig;
 import udmi.schema.DiscoveryEvents;
 import udmi.schema.DiscoveryState;
@@ -48,13 +44,6 @@ public class DiscoveryManager extends ManagerBase implements DiscoveryManagerPro
       DeviceManager deviceManager) {
     super(host, configuration);
     this.deviceManager = deviceManager;
-  }
-
-  private static boolean shouldEnumerateTo(Depth depth) {
-    return ifNullElse(depth, false, d -> switch (d) {
-      default -> false;
-      case ENTRIES, DETAILS -> true;
-    });
   }
 
   /**

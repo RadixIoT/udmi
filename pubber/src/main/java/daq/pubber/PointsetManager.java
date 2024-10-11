@@ -1,13 +1,9 @@
 package daq.pubber;
 
-import static com.google.udmi.util.GeneralUtils.getTimestamp;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifNotTrueThen;
 import static com.google.udmi.util.GeneralUtils.ifNullThen;
-import static com.google.udmi.util.GeneralUtils.ifTrueGet;
-import static com.google.udmi.util.GeneralUtils.ifTrueThen;
-import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElseGet;
 import static java.util.Optional.ofNullable;
@@ -134,6 +130,7 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
   /**
    * updates the data of all points in the managedPoints map.
    */
+  @Override
   public void updatePoints() {
     managedPoints.values().forEach(point -> {
       try {
@@ -156,6 +153,7 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
   /**
    * Updates the configuration of pointset points.
    * */
+  @Override
   public void updatePointsetPointsConfig(PointsetConfig config) {
     if (config == null) {
       pointsetState = null;

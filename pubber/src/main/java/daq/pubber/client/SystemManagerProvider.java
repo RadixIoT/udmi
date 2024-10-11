@@ -10,15 +10,14 @@ import static com.google.udmi.util.GeneralUtils.isTrue;
 import static com.google.udmi.util.JsonUtil.isoConvert;
 import static com.google.udmi.util.JsonUtil.stringify;
 import static java.lang.String.format;
+import static java.util.Objects.requireNonNullElse;
 import static java.util.Optional.ofNullable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.udmi.util.CleanDateFormat;
-import daq.pubber.ManagerLog;
 import daq.pubber.Pubber;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -40,23 +39,23 @@ import udmi.schema.SystemState;
 /**
  * System client.
  */
-public interface SystemManagerProvider extends ManagerLog, ManagerProvider {
+public interface SystemManagerProvider extends ManagerProvider {
 
-  static final String DEFAULT_MAKE = "bos";
-  static final String DEFAULT_MODEL = "pubber";
-  static final String DEFAULT_SOFTWARE_KEY = "firmware";
-  static final String DEFAULT_SOFTWARE_VALUE = "v1";
-  static final String PUBBER_LOG_CATEGORY = "device.log";
+  String DEFAULT_MAKE = "bos";
+  String DEFAULT_MODEL = "pubber";
+  String DEFAULT_SOFTWARE_KEY = "firmware";
+  String DEFAULT_SOFTWARE_VALUE = "v1";
+  String PUBBER_LOG_CATEGORY = "device.log";
 
-  static final long BYTES_PER_MEGABYTE = 1024 * 1024;
-  static final Map<SystemMode, Integer> EXIT_CODE_MAP = ImmutableMap.of(
+  long BYTES_PER_MEGABYTE = 1024 * 1024;
+  Map<SystemMode, Integer> EXIT_CODE_MAP = ImmutableMap.of(
       SystemMode.SHUTDOWN, 0, // Indicates expected clean shutdown (success).
       SystemMode.RESTART, 192, // Indicate process to be explicitly restarted.
       SystemMode.TERMINATE, 193); // Indicates expected shutdown (failure code).
-  static final Integer UNKNOWN_MODE_EXIT_CODE = -1;
+  Integer UNKNOWN_MODE_EXIT_CODE = -1;
 
-  static final Logger LOG = Pubber.LOG;
-  public static final Map<Level, Consumer<String>> LOG_MAP =
+  Logger LOG = Pubber.LOG;
+  Map<Level, Consumer<String>> LOG_MAP =
       ImmutableMap.<Level, Consumer<String>>builder()
           .put(Level.TRACE, LOG::info) // TODO: Make debug/trace programmatically visible.
           .put(Level.DEBUG, LOG::info)
@@ -234,7 +233,20 @@ public interface SystemManagerProvider extends ManagerLog, ManagerProvider {
     }
   }
 
-  boolean shouldLogLevel(int level);
+  /**
+   * Check if we should log at the level provided.
+   *
+   * @param level the level.
+   * @return true if we can log at the level provided.
+   */
+  default boolean shouldLogLevel(int level) {
+    if (getOptions().fixedLogLevel != null) {
+      return level >= getOptions().fixedLogLevel;
+    }
+
+    Integer minLoglevel = ifNotNullGet(getSystemConfig(), config -> getSystemConfig().min_loglevel);
+    return level >= requireNonNullElse(minLoglevel, Level.INFO.value());
+  }
 
   /**
    * Logs a message with specified level and detail. If publishing is enabled,

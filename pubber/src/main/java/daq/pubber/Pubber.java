@@ -17,7 +17,6 @@ import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.GeneralUtils.isTrue;
 import static com.google.udmi.util.GeneralUtils.optionsString;
 import static com.google.udmi.util.GeneralUtils.setClockSkew;
-import static com.google.udmi.util.GeneralUtils.sha256;
 import static com.google.udmi.util.GeneralUtils.stackTraceString;
 import static com.google.udmi.util.GeneralUtils.toJsonFile;
 import static com.google.udmi.util.GeneralUtils.toJsonString;
@@ -61,6 +60,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import org.apache.http.ConnectionClosedException;
 import org.slf4j.Logger;
@@ -89,23 +89,13 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
   public static final String PERSISTENT_TMP_FORMAT = "/tmp/pubber_%s_" + PERSISTENT_STORE_FILE;
   public static final String CA_CRT = "ca.crt";
   public static final Logger LOG = LoggerFactory.getLogger(Pubber.class);
-  public static final Date DEVICE_START_TIME = PubberHostProvider.getRoundedStartTime();
-  public static final int MESSAGE_REPORT_INTERVAL = 10;
   private static final String HOSTNAME = System.getenv("HOSTNAME");
   private static final String PUBSUB_SITE = "PubSub";
 
-  private static final Map<String, String> INVALID_REPLACEMENTS = ImmutableMap.of(
-      "events/blobset", "\"\"",
-      "events/discovery", "{}",
-      "events/mapping", "{ NOT VALID JSON!"
-  );
-  public static final List<String> INVALID_KEYS = new ArrayList<>(INVALID_REPLACEMENTS.keySet());
   private static final Map<String, AtomicInteger> MESSAGE_COUNTS = new HashMap<>();
   private static final int CONNECT_RETRIES = 10;
   private static final AtomicInteger retriesRemaining = new AtomicInteger(CONNECT_RETRIES);
   private static final long RESTART_DELAY_MS = 1000;
-  private static final String CORRUPT_STATE_MESSAGE = "!&*@(!*&@!";
-  private static final long INJECT_MESSAGE_DELAY_MS = 2000; // Delay to make sure testing is stable.
   private static final Duration CLOCK_SKEW = Duration.ofMinutes(30);
   private static final int STATE_SPAM_SEC = 5; // Expected config-state response time.
   final State deviceState = new State();
@@ -358,11 +348,6 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
         new File(siteModel.getDeviceWorkingDir(deviceId), PERSISTENT_STORE_FILE);
   }
 
-  private void markStateDirty(Runnable action) {
-    action.run();
-    markStateDirty();
-  }
-
 
   @Override
   public void markStateDirty(long delayMs) {
@@ -452,75 +437,6 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
     }
   }
 
-  private void checkSmokyFailure() {
-    if (isTrue(config.options.smokeCheck)
-        && Instant.now().minus(SMOKE_CHECK_TIME).isAfter(DEVICE_START_TIME.toInstant())) {
-      error(format("Smoke check failed after %sm, terminating run.",
-          SMOKE_CHECK_TIME.getSeconds() / 60));
-      deviceManager.systemLifecycle(SystemMode.TERMINATE);
-    }
-  }
-
-  /**
-   * For testing, if configured, send a slate of bad messages for testing by the message handling
-   * infrastructure. Uses the sekrit REPLACE_MESSAGE_WITH field to sneak bad output into the pipe.
-   * E.g., Will send a message with "{ INVALID JSON!" as a message payload. Inserts a delay before
-   * each message sent to stabilize the output order for testing purposes.
-   */
-  private void sendEmptyMissingBadEvents() {
-    int phase = deviceUpdateCount % MESSAGE_REPORT_INTERVAL;
-    if (!isTrue(config.options.emptyMissing)
-        || (phase >= INVALID_REPLACEMENTS.size() + 2)) {
-      return;
-    }
-
-    safeSleep(INJECT_MESSAGE_DELAY_MS);
-
-    if (phase == 0) {
-      flushDirtyState();
-      InjectedState invalidState = new InjectedState();
-      invalidState.REPLACE_MESSAGE_WITH = CORRUPT_STATE_MESSAGE;
-      warn("Sending badly formatted state as per configuration");
-      publishStateMessage(invalidState);
-    } else if (phase == 1) {
-      InjectedMessage invalidEvent = new InjectedMessage();
-      invalidEvent.field = "bunny";
-      warn("Sending badly formatted message type");
-      publishDeviceMessage(invalidEvent);
-    } else {
-      String key = INVALID_KEYS.get(phase - 2);
-      InjectedMessage replacedEvent = new InjectedMessage();
-      replacedEvent.REPLACE_TOPIC_WITH = key;
-      replacedEvent.REPLACE_MESSAGE_WITH = INVALID_REPLACEMENTS.get(key);
-      warn("Sending badly formatted message of type " + key);
-      publishDeviceMessage(replacedEvent);
-    }
-    safeSleep(INJECT_MESSAGE_DELAY_MS);
-  }
-
-  private void maybeTweakState() {
-    if (!isTrue(options.tweakState)) {
-      return;
-    }
-    int phase = deviceUpdateCount % 2;
-    String randomValue = format("%04x", System.currentTimeMillis() % 0xffff);
-    if (phase == 0) {
-      catchToNull(() -> deviceState.system.software.put("random", randomValue));
-    } else if (phase == 1) {
-      ifNotNullThen(deviceState.pointset, state -> state.state_etag = randomValue);
-    }
-  }
-
-  private void deferredConfigActions() {
-    if (!isConnected) {
-      return;
-    }
-
-    deviceManager.maybeRestartSystem();
-
-    // Do redirect after restart system check, since this might take a long time.
-    maybeRedirectEndpoint();
-  }
 
   @Override
   public void startConnection(Function<String, Boolean> connectionDone) {
@@ -599,14 +515,13 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
   }
 
   @Override
-  public byte[] ensureKeyBytes() {
+  public void ensureKeyBytes() {
     if (config.keyBytes == null) {
       checkNotNull(config.keyFile, "configuration keyFile not defined");
       info("Loading device key bytes from " + config.keyFile);
       config.keyBytes = getFileBytes(config.keyFile);
       config.keyFile = null;
     }
-    return (byte[]) config.keyBytes;
   }
 
 
@@ -676,20 +591,6 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
         .incrementAndGet();
     String timestamp = getTimestamp().replace("Z", format(".%03dZ", serial));
     return messageBase + (isTrue(config.options.messageTrace) ? ("_" + timestamp) : "");
-  }
-
-  private void cloudLog(String message, Level level) {
-    cloudLog(message, level, null);
-  }
-
-  private void cloudLog(String message, Level level, String detail) {
-    if (deviceManager != null) {
-      deviceManager.cloudLog(message, level, detail);
-    } else {
-      String detailPostfix = detail == null ? "" : ":\n" + detail;
-      String logMessage = format("%s%s", message, detailPostfix);
-      LOG_MAP.get(level).accept(logMessage);
-    }
   }
 
   private void trace(String message) {
@@ -815,5 +716,20 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
   @Override
   public void setConfigLatch(CountDownLatch countDownLatch) {
     this.configLatch = countDownLatch;
+  }
+
+  @Override
+  public boolean isConnected() {
+    return isConnected;
+  }
+
+  @Override
+  public int getDeviceUpdateCount() {
+    return deviceUpdateCount;
+  }
+
+  @Override
+  public Map<Level, Consumer<String>> getLogMap() {
+    return LOG_MAP;
   }
 }

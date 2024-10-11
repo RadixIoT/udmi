@@ -1,11 +1,9 @@
 package daq.pubber;
 
-import com.google.udmi.util.SiteModel;
 import daq.pubber.client.LocalnetManagerProvider;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
-import udmi.schema.FamilyLocalnetState;
 import udmi.schema.LocalnetConfig;
 import udmi.schema.LocalnetState;
 import udmi.schema.PubberConfiguration;
@@ -36,10 +34,6 @@ public class LocalnetManager extends ManagerBase implements LocalnetManagerProvi
     return this.localnetState;
   }
 
-  protected void update(String family, FamilyLocalnetState stateEntry) {
-    localnetState.families.put(family, stateEntry);
-    updateState();
-  }
 
   @Override
   public LocalnetConfig getLocalnetConfig() {
