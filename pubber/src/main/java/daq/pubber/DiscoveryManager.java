@@ -17,12 +17,11 @@ import static java.util.function.Predicate.not;
 import static java.util.stream.Collectors.toMap;
 import static udmi.schema.FamilyDiscoveryState.Phase.ACTIVE;
 import static udmi.schema.FamilyDiscoveryState.Phase.DONE;
-import static udmi.schema.FamilyDiscoveryState.Phase.PENDING;
-import static udmi.schema.FamilyDiscoveryState.Phase.STOPPED;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.udmi.util.SiteModel;
-import java.time.Instant;
+import daq.pubber.client.DiscoveryManagerProvider;
+import daq.pubber.client.ManagerProvider;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -47,7 +46,8 @@ import udmi.schema.SystemDiscoveryData;
 /**
  * Manager wrapper for discovery functionality in pubber.
  */
-public class DiscoveryManager extends ManagerBase {
+public class DiscoveryManager extends ManagerBase implements DiscoveryManagerProvider,
+    ManagerProvider {
 
   public static final int SCAN_DURATION_SEC = 10;
 
@@ -83,7 +83,12 @@ public class DiscoveryManager extends ManagerBase {
     return refDiscovery;
   }
 
-  private void updateDiscoveryEnumeration(DiscoveryConfig config) {
+  /**
+   * Updates discovery enumeration.
+   *
+   * @param config Discovery Configuration.
+   */
+  public void updateDiscoveryEnumeration(DiscoveryConfig config) {
     Date enumerationGeneration = config.generation;
     if (enumerationGeneration == null) {
       discoveryState.generation = null;
@@ -104,10 +109,16 @@ public class DiscoveryManager extends ManagerBase {
     host.publish(discoveryEvent);
   }
 
+  // tomerge
+  public void updateState() {
+    updateState(ofNullable((Object) getDiscoveryState()).orElse(DiscoveryState.class));
+  }
+
   private <K, V> Map<K, V> maybeEnumerate(Depth depth, Supplier<Map<K, V>> supplier) {
     return ifTrueGet(shouldEnumerateTo(depth), supplier);
   }
 
+  // tomerge
   private void updateDiscoveryScan(Map<String, FamilyDiscoveryConfig> raw) {
     Map<String, FamilyDiscoveryConfig> families = ofNullable(raw).orElse(ImmutableMap.of());
     ifNullThen(discoveryState.families, () -> discoveryState.families = new HashMap<>());
@@ -120,7 +131,7 @@ public class DiscoveryManager extends ManagerBase {
       discoveryState.families = null;
     }
   }
-
+  // tomerge
   private void scheduleDiscoveryScan(String family) {
     FamilyDiscoveryConfig familyDiscoveryConfig = getFamilyDiscoveryConfig(family);
     Date rawGeneration = familyDiscoveryConfig.generation;
@@ -158,15 +169,17 @@ public class DiscoveryManager extends ManagerBase {
     scheduleFuture(startGeneration, () -> checkDiscoveryScan(family, startGeneration));
   }
 
+  // tomerge
   private FamilyDiscoveryConfig getFamilyDiscoveryConfig(String family) {
     return discoveryConfig.families.get(family);
   }
 
+  // tomerge
   private void removeDiscoveryScan(String family) {
     FamilyDiscoveryState removed = discoveryState.families.remove(family);
     ifNotNullThen(removed, was -> cancelDiscoveryScan(family, was.generation, STOPPED));
   }
-
+  // tomerge
   private void cancelDiscoveryScan(String family, Date configGeneration, Phase phase) {
     FamilyDiscoveryState familyDiscoveryState = getFamilyDiscoveryState(family);
     info(format("Discovery scan %s phase %s as %s", family, phase, isoConvert(configGeneration)));
@@ -175,10 +188,12 @@ public class DiscoveryManager extends ManagerBase {
     updateState();
   }
 
+  // tomerge
   private FamilyDiscoveryState getFamilyDiscoveryState(String family) {
     return discoveryState.families.get(family);
   }
 
+  // tomerge
   private FamilyDiscoveryState ensureFamilyDiscoveryState(String family) {
     if (discoveryState.families == null) {
       // If there is no need for family state, then return a floating bucket for results.
@@ -188,6 +203,7 @@ public class DiscoveryManager extends ManagerBase {
         family, key -> new FamilyDiscoveryState());
   }
 
+  // tomerge
   private void checkDiscoveryScan(String family, Date scanGeneration) {
     try {
       FamilyDiscoveryState familyDiscoveryState = ensureFamilyDiscoveryState(family);
@@ -198,7 +214,13 @@ public class DiscoveryManager extends ManagerBase {
     }
   }
 
-  private void startDiscoveryScan(String family, Date scanGeneration) {
+  /**
+   * Starts a discovery scan.
+   *
+   * @param family Discovery scan family.
+   * @param scanGeneration Scan generation.
+   */
+  public void startDiscoveryScan(String family, Date scanGeneration) {
     info("Discovery scan starting " + family + " as " + isoConvert(scanGeneration));
     Date stopTime = Date.from(scanGeneration.toInstant().plusSeconds(SCAN_DURATION_SEC));
     final FamilyDiscoveryState familyDiscoveryState = ensureFamilyDiscoveryState(family);
@@ -223,6 +245,7 @@ public class DiscoveryManager extends ManagerBase {
         }));
   }
 
+  // tomerge
   private boolean shouldEnumerate(String family) {
     return shouldEnumerateTo(getFamilyDiscoveryConfig(family).depth);
   }
@@ -231,6 +254,7 @@ public class DiscoveryManager extends ManagerBase {
     return host.getLocalnetProvider(family);
   }
 
+  // tomerge
   private FamilyDiscovery eventForTarget(Map.Entry<String, FamilyLocalnetModel> target) {
     FamilyDiscovery event = new FamilyDiscovery();
     event.addr = target.getValue().addr;
@@ -261,20 +285,29 @@ public class DiscoveryManager extends ManagerBase {
     }
   }
 
+  // tomerge
   private int getScanInterval(String family) {
     return ofNullable(
         catchToNull(() -> getFamilyDiscoveryConfig(family).scan_interval_sec)).orElse(0);
   }
 
+  // tomerge
   private <T> T ifTrue(Boolean condition, Supplier<T> supplier) {
     return isGetTrue(() -> condition) ? supplier.get() : null;
   }
 
+  @Override
+  public Date getDeviceStartTime() {
+    return DEVICE_START_TIME;
+  }
+
+  // tomerge
   private Map<String, RefDiscovery> enumerateRefs(String deviceId) {
     return siteModel.getMetadata(deviceId).pointset.points.entrySet().stream()
         .collect(toMap(DiscoveryManager::getVendorRefKey, DiscoveryManager::getVendorRefValue));
   }
 
+  // tomerge
   private void updateState() {
     updateState(ofNullable((Object) discoveryState).orElse(DiscoveryState.class));
   }
@@ -282,6 +315,7 @@ public class DiscoveryManager extends ManagerBase {
   /**
    * Update the discovery config.
    */
+  @Override
   public void updateConfig(DiscoveryConfig discovery) {
     discoveryConfig = discovery;
     if (discovery == null) {
@@ -299,5 +333,25 @@ public class DiscoveryManager extends ManagerBase {
 
   public void setSiteModel(SiteModel siteModel) {
     this.siteModel = siteModel;
+  }
+
+  @Override
+  public DiscoveryState getDiscoveryState() {
+    return discoveryState;
+  }
+
+  @Override
+  public void setDiscoveryState(DiscoveryState discoveryState) {
+    this.discoveryState = discoveryState;
+  }
+
+  @Override
+  public DiscoveryConfig getDiscoveryConfig() {
+    return discoveryConfig;
+  }
+
+  @Override
+  public void setDiscoveryConfig(DiscoveryConfig discoveryConfig) {
+    this.discoveryConfig = discoveryConfig;
   }
 }

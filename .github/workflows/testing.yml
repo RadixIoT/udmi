@@ -76,7 +76,7 @@ jobs:
         shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     if: vars.TARGET_PROJECT != ''
     env:
-      TARGET_PROJECT: ${{ vars.TARGET_PROJECT }}
+      TARGET_PROJECT: //mqtt/localhost
       UDMI_ALT_REGISTRY: ZZ-REDIRECT-NA
       UDMI_REGISTRY_SUFFIX: _${{ matrix.shard }}
       MATRIX_SHARD_COUNT: 10
@@ -136,7 +136,7 @@ jobs:
     needs: automapping
     if: vars.TARGET_PROJECT != ''
     env:
-      TARGET_PROJECT: ${{ vars.TARGET_PROJECT }}
+      TARGET_PROJECT: //mqtt/localhost
       UDMI_ALT_REGISTRY: ZZ-REDIRECT-NA
     steps:
       - uses: actions/checkout@v4
@@ -282,7 +282,7 @@ jobs:
     timeout-minutes: 15
     if: ${{ vars.TARGET_PROJECT != '' && !cancelled() }}
     env:
-      TARGET_PROJECT: ${{ vars.TARGET_PROJECT }}
+      TARGET_PROJECT: //mqtt/localhost
       UDMI_ALT_REGISTRY: ZZ-REDIRECT-NA
       MQTT_PROXY_HOST: ${{ vars.MQTT_PROXY_HOST }}
     steps:
@@ -322,7 +322,7 @@ jobs:
     needs: [ baseline, sequencer, redirect, runlocal ]
     if: ${{ !cancelled() && vars.TARGET_PROJECT != '' }}
     env:
-      TARGET_PROJECT: ${{ vars.TARGET_PROJECT }}
+      TARGET_PROJECT: //mqtt/localhost
       UDMI_ALT_REGISTRY: ZZ-REDIRECT-NA
     steps:
       - uses: actions/checkout@v4

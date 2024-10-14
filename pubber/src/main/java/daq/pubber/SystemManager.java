@@ -3,50 +3,37 @@ package daq.pubber;
 import static com.google.udmi.util.GeneralUtils.catchOrElse;
 import static com.google.udmi.util.GeneralUtils.catchToNull;
 import static com.google.udmi.util.GeneralUtils.getTimestamp;
-import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifNotTrueGet;
 import static com.google.udmi.util.GeneralUtils.ifNotTrueThen;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.GeneralUtils.isTrue;
 import static com.google.udmi.util.JsonUtil.isoConvert;
-import static com.google.udmi.util.JsonUtil.stringify;
 import static java.lang.String.format;
-import static java.util.Objects.requireNonNullElse;
-import static java.util.Optional.ofNullable;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.udmi.util.CleanDateFormat;
+import daq.pubber.client.SystemManagerProvider;
 import java.io.File;
 import java.io.PrintStream;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Consumer;
-import org.slf4j.Logger;
-import udmi.schema.DevicePersistent;
 import udmi.schema.Entry;
 import udmi.schema.Level;
 import udmi.schema.Metadata;
-import udmi.schema.Metrics;
-import udmi.schema.Operation;
 import udmi.schema.Operation.SystemMode;
 import udmi.schema.PubberConfiguration;
 import udmi.schema.StateSystemHardware;
 import udmi.schema.StateSystemOperation;
 import udmi.schema.SystemConfig;
-import udmi.schema.SystemEvents;
-import udmi.schema.SystemState;
 
 /**
  * Support manager for system stuff.
  */
-public class SystemManager extends ManagerBase {
+public class SystemManager extends ManagerBase implements SystemManagerProvider {
 
+  // tomerge
   public static final String PUBBER_LOG_CATEGORY = "device.log";
   public static final String PUBBER_LOG = "pubber.log";
   private static final long BYTES_PER_MEGABYTE = 1024 * 1024;
@@ -128,7 +115,13 @@ public class SystemManager extends ManagerBase {
     }
   }
 
-  private void setHardwareSoftware(Metadata metadata) {
+  /**
+   * Retrieves the hardware and software from metadata.
+   *
+   * @param metadata the input metadata.
+   */
+  @Override
+  public void setHardwareSoftware(Metadata metadata) {
 
     systemState.hardware.make = catchOrElse(
         () -> metadata.system.hardware.make, () -> DEFAULT_MAKE);
@@ -149,12 +142,19 @@ public class SystemManager extends ManagerBase {
     }
   }
 
+  // tomerge
   private SystemEvents getSystemEvent() {
     SystemEvents systemEvent = new SystemEvents();
     systemEvent.last_config = systemState.last_config;
     return systemEvent;
   }
 
+  @Override
+  public SystemManagerProvider.ExtraSystemState getSystemState() {
+    return this.systemState;
+  }
+
+  // tomerge
   void maybeRestartSystem() {
     SystemConfig system = ofNullable(systemConfig).orElseGet(SystemConfig::new);
     Operation operation = ofNullable(system.operation).orElseGet(Operation::new);
@@ -187,10 +187,12 @@ public class SystemManager extends ManagerBase {
     }
   }
 
+  // tomerge
   private void updateState() {
     host.update(systemState);
   }
 
+  // tomerge
   private void sendSystemEvent() {
     SystemEvents systemEvent = getSystemEvent();
     systemEvent.metrics = new Metrics();
@@ -205,11 +207,17 @@ public class SystemManager extends ManagerBase {
   }
 
   @Override
-  protected void periodicUpdate() {
+  public Date getDeviceStartTime() {
+    return DEVICE_START_TIME;
+  }
+
+  @Override
+  public void periodicUpdate() {
     sendSystemEvent();
   }
 
-  void systemLifecycle(SystemMode mode) {
+  @Override
+  public void systemLifecycle(SystemMode mode) {
     systemState.operation.mode = mode;
     try {
       host.update(null);
@@ -221,14 +229,17 @@ public class SystemManager extends ManagerBase {
     System.exit(exitCode);
   }
 
+  // tomerge
   public void setMetadata(Metadata metadata) {
     setHardwareSoftware(metadata);
   }
 
+    // tomerge
   public void setPersistentData(DevicePersistent persistentData) {
     systemState.operation.restart_count = persistentData.restart_count;
   }
 
+  // tomerge
   void updateConfig(SystemConfig system, Date timestamp) {
     Integer oldBase = catchToNull(() -> systemConfig.testing.config_base);
     Integer newBase = catchToNull(() -> system.testing.config_base);
@@ -242,14 +253,14 @@ public class SystemManager extends ManagerBase {
     updateInterval(ifNotNullGet(system, config -> config.metrics_rate_sec));
     updateState();
   }
-
+// tomerge
   void publishLogMessage(Entry report) {
     if (shouldLogLevel(report.level)) {
       ifTrueThen(options.badLevel, () -> report.level = 0);
       logentries.add(report);
     }
   }
-
+// tomerge
   private boolean shouldLogLevel(int level) {
     if (options.fixedLogLevel != null) {
       return level >= options.fixedLogLevel;
@@ -258,7 +269,7 @@ public class SystemManager extends ManagerBase {
     Integer minLoglevel = ifNotNullGet(systemConfig, config -> systemConfig.min_loglevel);
     return level >= requireNonNullElse(minLoglevel, Level.INFO.value());
   }
-
+// tomerge
   void cloudLog(String message, Level level, String detail) {
     String timestamp = getTimestamp();
     localLog(message, level, timestamp, detail);
@@ -276,7 +287,7 @@ public class SystemManager extends ManagerBase {
       publishingLog = false;
     }
   }
-
+  // tomerge
   String getTestingTag() {
     SystemConfig config = systemConfig;
     return config == null || config.testing == null
@@ -284,6 +295,7 @@ public class SystemManager extends ManagerBase {
         : format(" (%s)", config.testing.sequence_name);
   }
 
+    // tomerge
   void localLog(Entry entry) {
     String message = format("Log %s%s %s %s %s%s", Level.fromValue(entry.level).name(),
         shouldLogLevel(entry.level) ? "" : "*",
@@ -291,7 +303,8 @@ public class SystemManager extends ManagerBase {
     localLog(message, Level.fromValue(entry.level), isoConvert(entry.timestamp), null);
   }
 
-  void localLog(String message, Level level, String timestamp, String detail) {
+    @Override
+    public void  localLog(String message, Level level, String timestamp, String detail) {
     String detailPostfix = detail == null ? "" : ":\n" + detail;
     String logMessage = format("%s %s%s", timestamp, message, detailPostfix);
     LOG_MAP.get(level).accept(logMessage);
@@ -311,21 +324,57 @@ public class SystemManager extends ManagerBase {
     }
   }
 
-  /**
-   * Log a message.
-   */
-  public void pubberLogMessage(String logMessage, Level level, String timestamp, String detail) {
-    Entry logEntry = new Entry();
-    logEntry.category = PUBBER_LOG_CATEGORY;
-    logEntry.level = level.value();
-    logEntry.timestamp = Date.from(Instant.parse(timestamp));
-    logEntry.message = logMessage;
-    logEntry.detail = detail;
-    publishLogMessage(logEntry);
+    /**
+     * Log a message.
+     */
+    // tomerge
+    public void pubberLogMessage(String logMessage, Level level, String timestamp, String detail) {
+      Entry logEntry = new Entry();
+      logEntry.category = PUBBER_LOG_CATEGORY;
+      logEntry.level = level.value();
+      logEntry.timestamp = Date.from(Instant.parse(timestamp));
+      logEntry.message = logMessage;
+      logEntry.detail = detail;
+      publishLogMessage(logEntry);
+    }
+// tomerge
+    class ExtraSystemState extends SystemState {
+
+      public String extraField;
+    }
+
+  @Override
+  public List<Entry> getLogentries() {
+    return logentries;
   }
 
-  class ExtraSystemState extends SystemState {
+  @Override
+  public boolean getPublishingLog() {
+    return publishingLog;
+  }
 
-    public String extraField;
+  @Override
+  public int getSystemEventCount() {
+    return systemEventCount;
+  }
+
+  @Override
+  public SystemConfig getSystemConfig() {
+    return systemConfig;
+  }
+
+  @Override
+  public void setSystemConfig(SystemConfig systemConfig) {
+    this.systemConfig = systemConfig;
+  }
+
+  @Override
+  public int incrementSystemEventCount() {
+    return systemEventCount++;
+  }
+
+  @Override
+  public void setPublishingLog(boolean publishingLog) {
+    this.publishingLog = publishingLog;
   }
 }

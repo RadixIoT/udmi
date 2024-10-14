@@ -9,6 +9,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 
 import com.google.daq.mqtt.util.CatchingScheduledThreadPoolExecutor;
 import com.google.udmi.util.SchemaVersion;
+import daq.pubber.client.ManagerProvider;
 import java.util.Date;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -28,11 +29,11 @@ import udmi.schema.SystemState;
 /**
  * Base class for Pubber subsystem managers.
  */
-public abstract class ManagerBase {
+public abstract class ManagerBase implements ManagerProvider {
 
   public static final int DISABLED_INTERVAL = 0;
   protected static final int DEFAULT_REPORT_SEC = 10;
-  protected static final int WAIT_TIME_SEC = 10;
+  public static final int WAIT_TIME_SEC = 10;
   protected final AtomicInteger sendRateSec = new AtomicInteger(DEFAULT_REPORT_SEC);
   protected final PubberOptions options;
   protected final ManagerHost host;
@@ -41,19 +42,20 @@ public abstract class ManagerBase {
   protected final ScheduledExecutorService executor = new CatchingScheduledThreadPoolExecutor(1);
   protected final AtomicBoolean stateDirty = new AtomicBoolean();
   final String deviceId;
-  final PubberConfiguration config;
+  protected final PubberConfiguration config;
   protected ScheduledFuture<?> periodicSender;
 
   /**
    * New instance.
    */
-  public ManagerBase(ManagerHost host, PubberConfiguration configuration) {
+  protected ManagerBase(ManagerHost host, PubberConfiguration configuration) {
     config = configuration;
     options = configuration.options;
     deviceId = requireNonNull(configuration.deviceId, "device id not defined");
     this.host = host;
   }
 
+  // tomerge
   protected static void updateStateHolder(State state, Object update) {
     requireNonNull(update, "null update message");
     state.timestamp = getNow();
@@ -82,11 +84,17 @@ public abstract class ManagerBase {
     }
   }
 
-  protected void updateState(Object state) {
+  @Override
+  public void updateState(Object state) {
     host.update(state);
   }
 
-  protected ScheduledFuture<?> scheduleFuture(Date futureTime, Runnable futureTask) {
+  /**
+   * Schedule a future for the futureTask parameter.
+   *
+   */
+  // tomerge
+  public ScheduledFuture<?> scheduleFuture(Date futureTime, Runnable futureTask) {
     if (executor.isShutdown() || executor.isTerminated()) {
       throw new RuntimeException("Executor shutdown/terminated, not scheduling");
     }
@@ -127,7 +135,15 @@ public abstract class ManagerBase {
     host.error(message, null);
   }
 
-  protected void updateInterval(Integer sampleRateSec) {
+  /**
+   * Updates the interval for periodic updates based on the provided sample rate,
+   * ensuring it respects the minimum disabled interval.
+   *
+   * @param sampleRateSec The desired sample rate in seconds,
+   *                      or null to use the default report interval.
+   */
+  @Override
+  public void updateInterval(Integer sampleRateSec) {
     int reportInterval = ofNullable(sampleRateSec).orElse(DEFAULT_REPORT_SEC);
     int intervalSec = ofNullable(options.fixedSampleRate).orElse(reportInterval);
     if (intervalSec < DISABLED_INTERVAL) {
@@ -144,7 +160,8 @@ public abstract class ManagerBase {
     }
   }
 
-  protected void periodicUpdate() {
+  @Override
+  public void periodicUpdate() {
     throw new IllegalStateException("No periodic update handler defined");
   }
 
@@ -183,12 +200,28 @@ public abstract class ManagerBase {
     }
   }
 
-  protected void stop() {
+  public void stop() {
     cancelPeriodicSend();
   }
 
-  protected void shutdown() {
+  public void shutdown() {
     cancelPeriodicSend();
     stopExecutor();
+  }
+
+  public String getDeviceId() {
+    return deviceId;
+  }
+
+  public PubberOptions getOptions() {
+    return options;
+  }
+
+  public PubberConfiguration getConfig() {
+    return config;
+  }
+
+  public ManagerHost getHost() {
+    return host;
   }
 }

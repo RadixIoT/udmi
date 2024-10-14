@@ -18,6 +18,8 @@ import static udmi.schema.Category.POINTSET_POINT_INVALID_VALUE;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import daq.pubber.client.PointsetManagerProvider;
+import daq.pubber.client.PointsetManagerProvider.ExtraPointsetEvent;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -39,7 +41,7 @@ import udmi.schema.PubberConfiguration;
 /**
  * Helper class to manage the operation of a pointset block.
  */
-public class PointsetManager extends ManagerBase {
+public class PointsetManager extends ManagerBase implements PointsetManagerProvider {
 
   private static final Set<String> BOOLEAN_UNITS = ImmutableSet.of("No-units");
 
@@ -77,6 +79,7 @@ public class PointsetManager extends ManagerBase {
     return pointMetadata;
   }
 
+  // tomerge
   private static PointPointsetEvents extraPointsetEvent() {
     PointPointsetEvents pointPointsetEvent = new PointPointsetEvents();
     pointPointsetEvent.present_value = 100;
@@ -91,6 +94,7 @@ public class PointsetManager extends ManagerBase {
     }
   }
 
+  @Override
   public void setExtraField(String extraField) {
     ifNotNullThen(extraField, field -> pointsetEvent.extraField = field);
   }
@@ -102,6 +106,7 @@ public class PointsetManager extends ManagerBase {
    *
    * @param model pointset model
    */
+  @Override
   public void setPointsetModel(PointsetModel model) {
     Map<String, PointPointsetModel> points =
         ifNotNullGet(model, m -> requireNonNullElseGet(model.points, HashMap::new), DEFAULT_POINTS);
@@ -112,10 +117,12 @@ public class PointsetManager extends ManagerBase {
     points.forEach((name, point) -> addPoint(makePoint(name, point)));
   }
 
-  private void addPoint(AbstractPoint point) {
+  @Override
+  public void addPoint(AbstractPoint point) {
     managedPoints.put(point.getName(), point);
   }
 
+  // tomerge
   private void restorePoint(String pointName) {
     if (pointsetState == null || pointName.equals(options.missingPoint)) {
       return;
@@ -127,6 +134,7 @@ public class PointsetManager extends ManagerBase {
         AbstractPoint::getData, new PointPointsetEvents()));
   }
 
+  // tomerge
   private PointPointsetState getTweakedPointState(AbstractPoint point) {
     PointPointsetState state = point.getState();
     // Tweak for testing: erroneously apply an applied state here.
@@ -134,13 +142,17 @@ public class PointsetManager extends ManagerBase {
         () -> state.value_state = ofNullable(state.value_state).orElse(Value_state.APPLIED));
     return state;
   }
-
+  // tomerge
   private void suspendPoint(String pointName) {
     pointsetState.points.remove(pointName);
     pointsetEvent.points.remove(pointName);
   }
 
-  private void updatePoints() {
+  /**
+   * updates the data of all points in the managedPoints map.
+   */
+  @Override
+  public void updatePoints() {
     managedPoints.values().forEach(point -> {
       try {
         point.updateData();
@@ -151,10 +163,12 @@ public class PointsetManager extends ManagerBase {
     });
   }
 
+  // tomerge
   private void updateState() {
     updateState(ofNullable((Object) pointsetState).orElse(PointsetState.class));
   }
 
+  // tomerge
   private void updateState(AbstractPoint point) {
     String pointName = point.getName();
 
@@ -170,6 +184,7 @@ public class PointsetManager extends ManagerBase {
     }
   }
 
+  // tomerge
   private PointPointsetState invalidPoint(String pointName) {
     PointPointsetState pointPointsetState = new PointPointsetState();
     pointPointsetState.status = new Entry();
@@ -187,7 +202,11 @@ public class PointsetManager extends ManagerBase {
     });
   }
 
-  private void updatePointsetPointsConfig(PointsetConfig config) {
+  /**
+   * Updates the configuration of pointset points.
+   * */
+  @Override
+  public void updatePointsetPointsConfig(PointsetConfig config) {
     if (config == null) {
       pointsetState = null;
       updateState();
@@ -220,7 +239,8 @@ public class PointsetManager extends ManagerBase {
     });
 
     ifNotNullThen(options.extraPoint,
-        extraPoint -> pointsetEvent.points.put(extraPoint, extraPointsetEvent()));
+        extraPoint -> pointsetEvent.points.put(extraPoint,
+            PointsetManagerProvider.extraPointsetEvent()));
 
     AtomicReference<Entry> maxStatus = new AtomicReference<>();
     statePoints.forEach(
@@ -233,6 +253,7 @@ public class PointsetManager extends ManagerBase {
     updateState();
   }
 
+  // tomerge
   void updateConfig(PointsetConfig config) {
     Integer rate = ifNotNullGet(config, c -> c.sample_rate_sec);
     Integer limit = ifNotNullGet(config, c -> c.sample_limit_sec);
@@ -242,7 +263,7 @@ public class PointsetManager extends ManagerBase {
   }
 
   @Override
-  protected void periodicUpdate() {
+  public void periodicUpdate() {
     try {
       if (pointsetState != null) {
         pointsetUpdateCount++;
@@ -254,6 +275,7 @@ public class PointsetManager extends ManagerBase {
     }
   }
 
+  // tomerge
   private void sendDevicePoints() {
     if (pointsetUpdateCount % Pubber.MESSAGE_REPORT_INTERVAL == 0) {
       info(format("%s sending %s message #%d with %d points",
@@ -261,10 +283,29 @@ public class PointsetManager extends ManagerBase {
     }
     host.publish(pointsetEvent);
   }
+  @Override
+  public int getPointsetUpdateCount() {
+    return pointsetUpdateCount;
+  }
 
+  @Override
+  public PointsetManagerProvider.ExtraPointsetEvent getPointsetEvent() {
+    return pointsetEvent;
+  }
+
+  @Override
+  public Map<String, AbstractPoint> getManagedPoints() {
+    return managedPoints;
+  }
+
+  @Override
+  public PointsetState getPointsetState() {
+    return pointsetState;
+  }
   static class ExtraPointsetEvent extends PointsetEvents {
 
     // This extraField exists only to trigger schema parsing errors.
     public Object extraField;
+
   }
 }

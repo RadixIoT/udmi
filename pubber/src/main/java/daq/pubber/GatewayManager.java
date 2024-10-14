@@ -14,8 +14,8 @@ import static java.util.function.Predicate.not;
 import static udmi.schema.Category.GATEWAY_PROXY_TARGET;
 
 import com.google.udmi.util.SiteModel;
-import java.util.HashMap;
-import java.util.List;
+import daq.pubber.client.GatewayManagerProvider;
+import daq.pubber.client.ProxyDeviceHostProvider;
 import java.util.Map;
 import udmi.schema.Config;
 import udmi.schema.Entry;
@@ -30,11 +30,9 @@ import udmi.schema.PubberConfiguration;
 /**
  * Manager for UDMI gateway functionality.
  */
-public class GatewayManager extends ManagerBase {
+public class GatewayManager extends ManagerBase implements GatewayManagerProvider {
 
-  private static final String EXTRA_PROXY_DEVICE = "XXX-1";
-  private static final String EXTRA_PROXY_POINT = "xxx_conflagration";
-  private Map<String, ProxyDevice> proxyDevices;
+  private Map<String, ProxyDeviceHostProvider> proxyDevices;
   private SiteModel siteModel;
   private Metadata metadata;
   private GatewayState gatewayState;
@@ -43,6 +41,7 @@ public class GatewayManager extends ManagerBase {
     super(host, configuration);
   }
 
+  // tomerge
   private Map<String, ProxyDevice> createProxyDevices(List<String> proxyIds) {
     if (proxyIds == null) {
       return Map.of();
@@ -64,10 +63,11 @@ public class GatewayManager extends ManagerBase {
   /**
    * Publish log message for target device.
    */
+  @Override
   public void publishLogMessage(Entry logEntry, String targetId) {
     ifNotNullThen(proxyDevices, p -> p.values().forEach(pd -> {
-      if (pd.deviceId.equals(targetId)) {
-        pd.deviceManager.publishLogMessage(logEntry, targetId);
+      if (pd.getDeviceId().equals(targetId)) {
+        pd.getDeviceManager().publishLogMessage(logEntry, targetId);
       }
     }));
   }
@@ -77,10 +77,18 @@ public class GatewayManager extends ManagerBase {
     proxyDevices = ifNotNullGet(metadata.gateway, g -> createProxyDevices(g.proxy_ids));
   }
 
-  public void activate() {
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDevice::activate));
+
+  @Override
+  public ProxyDeviceHostProvider makeExtraDevice() {
+    return new ProxyDevice(getHost(), EXTRA_PROXY_DEVICE, getConfig());
   }
 
+  @Override
+  public void activate() {
+    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDeviceHostProvider::activate));
+  }
+
+  // tomerge
   ProxyDevice makeExtraDevice() {
     return new ProxyDevice(host, EXTRA_PROXY_DEVICE, config);
   }
@@ -90,6 +98,7 @@ public class GatewayManager extends ManagerBase {
    * slightly different forms, one for the gateway proper (primarily indicating what devices
    * should be proxy targets), and the other for the proxy devices themselves.
    */
+  @Override
   public void updateConfig(GatewayConfig gateway) {
     if (gateway == null) {
       gatewayState = null;
@@ -115,7 +124,18 @@ public class GatewayManager extends ManagerBase {
     updateState();
   }
 
-  private void setGatewayStatus(String category, Level level, String message) {
+  /**
+   * Sets the status of the gateway.
+   *
+   * @param category The category of the error or warning. This could be a specific module, service,
+   *                etc., that is causing the issue.
+   * @param level The severity level of the message. This can be used to determine how severe the
+   *              issue is and what action should be taken.
+   * @param message A detailed description of the status. This provides more information about the
+   *                current state of the gateway or any issues it may have encountered.
+   */
+  @Override
+  public void setGatewayStatus(String category, Level level, String message) {
     // TODO: Implement a map or tree or something to properly handle different error sources.
     gatewayState.status = new Entry();
     gatewayState.status.category = category;
@@ -124,10 +144,12 @@ public class GatewayManager extends ManagerBase {
     gatewayState.status.timestamp = getNow();
   }
 
+  // tomerge
   private void updateState() {
     updateState(ofNullable((Object) gatewayState).orElse(GatewayState.class));
   }
 
+  // tomerge
   private void validateGatewayFamily(String family, String addr) {
     if (!ProtocolFamily.FAMILIES.contains(family)) {
       throw new IllegalArgumentException("Unrecognized address family " + family);
@@ -141,6 +163,7 @@ public class GatewayManager extends ManagerBase {
     }
   }
 
+  // tomerge
   private void configExtraDevice() {
     Config config = new Config();
     config.pointset = new PointsetConfig();
@@ -153,13 +176,13 @@ public class GatewayManager extends ManagerBase {
   @Override
   public void shutdown() {
     super.shutdown();
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDevice::shutdown));
+    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDeviceHostProvider::shutdown));
   }
 
   @Override
   public void stop() {
     super.stop();
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDevice::stop));
+    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDeviceHostProvider::stop));
   }
 
   public void setSiteModel(SiteModel siteModel) {
@@ -167,11 +190,32 @@ public class GatewayManager extends ManagerBase {
     processMetadata();
   }
 
-  private void processMetadata() {
+  void processMetadata() {
     ifNotNullThen(proxyDevices, p -> p.values().forEach(proxy -> {
-      Metadata metadata = ifNotNullGet(siteModel, s -> s.getMetadata(proxy.deviceId));
-      metadata = ofNullable(metadata).orElse(new Metadata());
-      proxy.setMetadata(metadata);
+      Metadata localMetadata = ifNotNullGet(siteModel, s -> s.getMetadata(proxy.getDeviceId()));
+      localMetadata = ofNullable(localMetadata).orElse(new Metadata());
+      proxy.setMetadata(localMetadata);
     }));
+  }
+
+  @Override
+  public Metadata getMetadata() {
+    return metadata;
+  }
+
+  @Override
+  public GatewayState getGatewayState() {
+    return gatewayState;
+  }
+
+  @Override
+  public Map<String, ProxyDeviceHostProvider> getProxyDevices() {
+    return proxyDevices;
+  }
+
+  @Override
+  public ProxyDeviceHostProvider createProxyDevice(ManagerHost host, String id,
+      PubberConfiguration config) {
+    return new ProxyDevice(host, id, config);
   }
 }

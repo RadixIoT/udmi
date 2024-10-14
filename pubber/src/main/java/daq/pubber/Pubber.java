@@ -11,12 +11,10 @@ import static com.google.udmi.util.GeneralUtils.fromJsonFile;
 import static com.google.udmi.util.GeneralUtils.fromJsonFileStrict;
 import static com.google.udmi.util.GeneralUtils.fromJsonString;
 import static com.google.udmi.util.GeneralUtils.getFileBytes;
-import static com.google.udmi.util.GeneralUtils.getNow;
 import static com.google.udmi.util.GeneralUtils.getTimestamp;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
-import static com.google.udmi.util.GeneralUtils.isGetTrue;
 import static com.google.udmi.util.GeneralUtils.isTrue;
 import static com.google.udmi.util.GeneralUtils.optionsString;
 import static com.google.udmi.util.GeneralUtils.setClockSkew;
@@ -24,25 +22,19 @@ import static com.google.udmi.util.GeneralUtils.stackTraceString;
 import static com.google.udmi.util.GeneralUtils.toJsonFile;
 import static com.google.udmi.util.GeneralUtils.toJsonString;
 import static com.google.udmi.util.JsonUtil.isoConvert;
-import static com.google.udmi.util.JsonUtil.parseJson;
 import static com.google.udmi.util.JsonUtil.safeSleep;
 import static com.google.udmi.util.JsonUtil.stringify;
-import static daq.pubber.MqttDevice.CONFIG_TOPIC;
-import static daq.pubber.MqttDevice.ERRORS_TOPIC;
-import static daq.pubber.MqttDevice.STATE_TOPIC;
 import static daq.pubber.MqttPublisher.DEFAULT_CONFIG_WAIT_SEC;
 import static daq.pubber.SystemManager.LOG_MAP;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNullElse;
 import static java.util.Optional.ofNullable;
-import static udmi.schema.BlobsetConfig.SystemBlobsets.IOT_ENDPOINT_CONFIG;
 import static udmi.schema.EndpointConfiguration.Protocol.MQTT;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
+import com.google.daq.mqtt.util.CatchingScheduledThreadPoolExecutor;
 import com.google.udmi.util.CertManager;
-import com.google.udmi.util.GeneralUtils;
-import com.google.udmi.util.MessageDowngrader;
 import com.google.udmi.util.SchemaVersion;
 import com.google.udmi.util.SiteModel;
 import com.google.udmi.util.SiteModel.MetadataException;
@@ -50,12 +42,11 @@ import daq.pubber.MqttPublisher.FakeTopic;
 import daq.pubber.MqttPublisher.InjectedMessage;
 import daq.pubber.MqttPublisher.InjectedState;
 import daq.pubber.MqttPublisher.PublisherException;
-import daq.pubber.PointsetManager.ExtraPointsetEvent;
 import daq.pubber.PubSubClient.Bundle;
-import daq.pubber.SystemManager.ExtraSystemState;
+import daq.pubber.client.DeviceManagerProvider;
+import daq.pubber.client.PubberHostProvider;
 import java.io.File;
 import java.io.PrintStream;
-import java.lang.reflect.Field;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -64,11 +55,12 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import org.apache.http.ConnectionClosedException;
 import org.slf4j.Logger;
@@ -79,12 +71,12 @@ import udmi.schema.BlobBlobsetState;
 import udmi.schema.BlobsetConfig.SystemBlobsets;
 import udmi.schema.BlobsetState;
 import udmi.schema.Category;
+import udmi.schema.CloudModel.Auth_type;
 import udmi.schema.Config;
 import udmi.schema.DevicePersistent;
 import udmi.schema.DiscoveryEvents;
 import udmi.schema.EndpointConfiguration;
 import udmi.schema.EndpointConfiguration.Protocol;
-import udmi.schema.Entry;
 import udmi.schema.Envelope;
 import udmi.schema.Envelope.SubFolder;
 import udmi.schema.Envelope.SubType;
@@ -95,14 +87,13 @@ import udmi.schema.PointsetEvents;
 import udmi.schema.PubberConfiguration;
 import udmi.schema.PubberOptions;
 import udmi.schema.State;
-import udmi.schema.SystemEvents;
-import udmi.schema.SystemState;
 
 /**
  * IoT Core UDMI Device Emulator.
  */
-public class Pubber extends ManagerBase implements ManagerHost {
+public class Pubber extends ManagerBase implements PubberHostProvider {
 
+  // tomerge properties
   public static final String PUBBER_OUT = "pubber/out";
   public static final String PERSISTENT_STORE_FILE = "persistent_data.json";
   public static final String PERSISTENT_TMP_FORMAT = "/tmp/pubber_%s_" + PERSISTENT_STORE_FILE;
@@ -222,10 +213,12 @@ public class Pubber extends ManagerBase implements ManagerHost {
     return configuration;
   }
 
+  // tomerge
   private static String getEventsSuffix(String suffixSuffix) {
     return MqttDevice.EVENTS_TOPIC + "/" + suffixSuffix;
   }
 
+  // tomerge
   private static Date getRoundedStartTime() {
     long timestamp = getNow().getTime();
     // Remove ms so that rounded conversions preserve equality.
@@ -321,6 +314,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     return configuration;
   }
 
+  // tomerge
   static String acquireBlobData(String url, String sha256) {
     if (!url.startsWith(DATA_URL_JSON_BASE64)) {
       throw new RuntimeException("URL encoding not supported: " + url);
@@ -333,6 +327,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     return new String(dataBytes);
   }
 
+  // tomerge
   static void augmentDeviceMessage(Object message, Date now, boolean useBadVersion) {
     try {
       Field version = message.getClass().getField("version");
@@ -344,6 +339,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
+  // tomerge
   static String getGatewayId(String targetId, PubberConfiguration configuration) {
     return ofNullable(configuration.gatewayId).orElse(
         targetId.equals(configuration.deviceId) ? null : configuration.deviceId);
@@ -354,7 +350,8 @@ public class Pubber extends ManagerBase implements ManagerHost {
     return deviceManager.getLocalnetProvider(family);
   }
 
-  private void initializeDevice() {
+  @Override
+  public void initializeDevice() {
     deviceManager = new DeviceManager(this, config);
 
     if (config.sitePath != null) {
@@ -385,11 +382,14 @@ public class Pubber extends ManagerBase implements ManagerHost {
     markStateDirty();
   }
 
+
+  // tomerge
   protected DevicePersistent newDevicePersistent() {
     return new DevicePersistent();
   }
 
-  protected void initializePersistentStore() {
+  @Override
+  public void initializePersistentStore() {
     checkState(persistentData == null, "persistent data already loaded");
     File persistentStore = getPersistentStore();
 
@@ -421,7 +421,8 @@ public class Pubber extends ManagerBase implements ManagerHost {
     writePersistentStore();
   }
 
-  private void writePersistentStore() {
+  @Override
+  public void writePersistentStore() {
     checkState(persistentData != null, "persistent data not defined");
     toJsonFile(getPersistentStore(), persistentData);
     warn("Updating persistent store:\n" + stringify(persistentData));
@@ -433,16 +434,19 @@ public class Pubber extends ManagerBase implements ManagerHost {
         new File(siteModel.getDeviceWorkingDir(deviceId), PERSISTENT_STORE_FILE);
   }
 
+  // tomerge
   private void markStateDirty(Runnable action) {
     action.run();
     markStateDirty();
   }
 
+  // tomerge
   private void markStateDirty() {
     markStateDirty(0);
   }
 
-  private void markStateDirty(long delayMs) {
+  @Override
+  public void markStateDirty(long delayMs) {
     stateDirty.set(true);
     if (delayMs >= 0) {
       try {
@@ -453,6 +457,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
+  // tomerge
   private void publishDirtyState() {
     if (stateDirty.get()) {
       debug("Publishing dirty state block");
@@ -460,6 +465,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
+  // tomerge
   @Override
   public void update(Object update) {
     if (update == null) {
@@ -473,6 +479,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
+  // tomerge
   private void sendPartialState() {
     State dupeState = new State();
     dupeState.system = deviceState.system;
@@ -481,11 +488,13 @@ public class Pubber extends ManagerBase implements ManagerHost {
     publishStateMessage(dupeState);
   }
 
+  // tomerge
   @Override
   public void publish(Object message) {
     publishDeviceMessage(message);
   }
 
+  // tomerge
   public void publish(String targetId, Object message) {
     publishDeviceMessage(targetId, message);
   }
@@ -559,6 +568,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
+  // tomerge
   private void checkSmokyFailure() {
     if (isTrue(config.options.smokeCheck)
         && Instant.now().minus(SMOKE_CHECK_TIME).isAfter(DEVICE_START_TIME.toInstant())) {
@@ -574,6 +584,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
    * E.g., Will send a message with "{ INVALID JSON!" as a message payload. Inserts a delay before
    * each message sent to stabilize the output order for testing purposes.
    */
+  // tomerge
   private void sendEmptyMissingBadEvents() {
     if (!isTrue(config.options.emptyMissing)) {
       return;
@@ -612,7 +623,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
     safeSleep(INJECT_MESSAGE_DELAY_MS);
   }
-
+  // tomerge
   private void maybeTweakState() {
     if (!isTrue(options.tweakState)) {
       return;
@@ -625,7 +636,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
       ifNotNullThen(deviceState.pointset, state -> state.state_etag = randomValue);
     }
   }
-
+  // tomerge
   private void deferredConfigActions() {
     if (!isConnected) {
       return;
@@ -636,13 +647,13 @@ public class Pubber extends ManagerBase implements ManagerHost {
     // Do redirect after restart system check, since this might take a long time.
     maybeRedirectEndpoint();
   }
-
+  // tomerge
   private void flushDirtyState() {
     if (stateDirty.get()) {
       publishAsynchronousState();
     }
   }
-
+  // tomerge
   private void captureExceptions(String action, Runnable runnable) {
     try {
       runnable.run();
@@ -651,7 +662,8 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
-  protected void startConnection(Function<String, Boolean> connectionDone) {
+  @Override
+  public void startConnection(Function<String, Boolean> connectionDone) {
     String nonce = String.valueOf(System.currentTimeMillis());
     warn(format("Starting connection %s with %d", nonce, retriesRemaining.get()));
     try {
@@ -689,6 +701,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     return false;
   }
 
+  // tomerge
   private void configLatchWait() {
     try {
       int waitTimeSec = ofNullable(config.endpoint.config_sync_sec)
@@ -703,6 +716,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
+  // tomerge
   protected void initialize() {
     try {
       initializeDevice();
@@ -727,6 +741,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     captureExceptions("disconnecting mqtt", this::disconnectMqtt);
   }
 
+  // tomerge
   private void disconnectMqtt() {
     if (deviceTarget != null) {
       captureExceptions("closing mqtt publisher", deviceTarget::close);
@@ -735,7 +750,8 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
-  private void initializeMqtt() {
+  @Override
+  public void initializeMqtt() {
     checkNotNull(config.deviceId, "configuration deviceId not defined");
     if (siteModel != null && config.keyFile != null) {
       config.keyFile = siteModel.getDeviceKeyFile(config.deviceId);
@@ -757,6 +773,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     return ofNullable(catchToNull(() -> metadata.gateway.gateway_id)).orElse(deviceId);
   }
 
+  // tomerge
   private void registerMessageHandlers() {
     deviceTarget.registerHandler(CONFIG_TOPIC, this::configHandler, Config.class);
     String gatewayId = getGatewayId(deviceId, config);
@@ -771,11 +788,14 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
+  // tomerge
   public MqttDevice getMqttDevice(String proxyId) {
     return new MqttDevice(proxyId, deviceTarget);
   }
 
-  private byte[] ensureKeyBytes() {
+  // tomerge
+  @Override
+  byte[] ensureKeyBytes() {
     if (config.keyBytes == null) {
       checkNotNull(config.keyFile, "configuration keyFile not defined");
       info("Loading device key bytes from " + config.keyFile);
@@ -784,7 +804,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
     return (byte[]) config.keyBytes;
   }
-
+  // tomerge
   private void connect() {
     try {
       warn("Creating new config latch for " + deviceId);
@@ -797,11 +817,13 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
+  // tomerge
   public void publisherConfigLog(String phase, Exception e, String targetId) {
     publisherHandler("config", phase, e, targetId);
   }
 
-  private void publisherException(Exception toReport) {
+  @Override
+  public void publisherException(Exception toReport) {
     if (toReport instanceof PublisherException report) {
       publisherHandler(report.type, report.phase, report.getCause(), report.deviceId);
     } else if (toReport instanceof ConnectionClosedException) {
@@ -818,6 +840,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
+  // tomerge
   private void publisherHandler(String type, String phase, Throwable cause, String targetId) {
     if (cause != null) {
       error("Error receiving message " + type, cause);
@@ -834,6 +857,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     ifTrueThen(deviceId.equals(targetId), () -> registerSystemStatus(report));
   }
 
+  // tomerge
   private void registerSystemStatus(Entry report) {
     deviceState.system.status = report;
     markStateDirty();
@@ -844,6 +868,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
    * synthetic delay in so that testing infrastructure can test that related sequence tests handle
    * this case appropriately.
    */
+  // tomerge
   private void publishConfigStateUpdate() {
     if (isTrue(config.options.configStateDelay)) {
       delayNextStateUpdate();
@@ -851,6 +876,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     publishAsynchronousState();
   }
 
+  // tomerge
   private void delayNextStateUpdate() {
     // Calculate a synthetic last state time that factors in the optional delay.
     long syntheticType = System.currentTimeMillis() - STATE_THROTTLE_MS + FORCED_STATE_TIME_MS;
@@ -858,6 +884,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     lastStateTimeMs = Math.max(lastStateTimeMs, syntheticType);
   }
 
+  // tomerge
   private Entry entryFromException(String category, Throwable e) {
     boolean success = e == null;
     Entry entry = new Entry();
@@ -871,6 +898,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     return entry;
   }
 
+  // tomerge
   private String exceptionDetail(Throwable e) {
     StringBuilder buffer = new StringBuilder();
     while (e != null) {
@@ -880,6 +908,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     return buffer.toString();
   }
 
+  // tomerge
   private void configHandler(Config config) {
     try {
       configPreprocess(deviceId, config);
@@ -897,14 +926,17 @@ public class Pubber extends ManagerBase implements ManagerHost {
     publishConfigStateUpdate();
   }
 
+  // tomerge
   private void gatewayHandler(Config gatewayConfig) {
     warn("Ignoring configuration for gateway " + getGatewayId(deviceId, config));
   }
 
+  // tomerge
   private void errorHandler(GatewayError error) {
     warn(format("%s for %s: %s", error.error_type, error.device_id, error.description));
   }
 
+  // tomerge
   void configPreprocess(String targetId, Config configMsg) {
     String gatewayId = getGatewayId(targetId, config);
     String suffix = ifNotNullGet(gatewayId, x -> "_" + targetId, "");
@@ -914,6 +946,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     toJsonFile(configOut, configMsg);
   }
 
+  // tomerge
   private void processConfigUpdate(Config configMsg) {
     try {
       // Grab this to make state-after-config updates monolithic.
@@ -941,6 +974,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
+  // tomerge
   // TODO: Consider refactoring this to either return or change an instance variable, not both.
   EndpointConfiguration extractEndpointBlobConfig() {
     extractedEndpoint = null;
@@ -962,6 +996,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     return extractedEndpoint;
   }
 
+  // tomerge
   private void removeBlobsetBlobState(SystemBlobsets blobId) {
     if (deviceState.blobset == null) {
       return;
@@ -978,6 +1013,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     markStateDirty();
   }
 
+  // tomerge
   void maybeRedirectEndpoint() {
     String redirectRegistry = config.options.redirectRegistry;
     String currentSignature = toJsonString(config.endpoint);
@@ -1041,7 +1077,8 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
-  private void persistEndpoint(EndpointConfiguration endpoint) {
+  @Override
+  public void persistEndpoint(EndpointConfiguration endpoint) {
     notice("Persisting connection endpoint");
     persistentData.endpoint = endpoint;
     writePersistentStore();
@@ -1057,7 +1094,18 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
-  private void resetConnection(String targetEndpoint) {
+  @Override
+  public AtomicBoolean getStateDirty() {
+    return stateDirty;
+  }
+
+  @Override
+  public SchemaVersion getTargetSchema() {
+    return targetSchema;
+  }
+
+  @Override
+  public void resetConnection(String targetEndpoint) {
     try {
       config.endpoint = fromJsonString(targetEndpoint,
           EndpointConfiguration.class);
@@ -1070,6 +1118,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
+  // tomerge
   private Entry exceptionStatus(Exception e, String category) {
     Entry entry = new Entry();
     entry.message = e.getMessage();
@@ -1079,19 +1128,19 @@ public class Pubber extends ManagerBase implements ManagerHost {
     entry.timestamp = getNow();
     return entry;
   }
-
+  // tomerge
   private BlobBlobsetState ensureBlobsetState(SystemBlobsets iotEndpointConfig) {
     deviceState.blobset = ofNullable(deviceState.blobset).orElseGet(BlobsetState::new);
     deviceState.blobset.blobs = ofNullable(deviceState.blobset.blobs).orElseGet(HashMap::new);
     return deviceState.blobset.blobs.computeIfAbsent(iotEndpointConfig.value(),
         key -> new BlobBlobsetState());
   }
-
+  // tomerge
   private String getClientId(String forRegistry) {
     String cloudRegion = SiteModel.parseClientId(config.endpoint.client_id).cloudRegion;
     return SiteModel.getClientId(config.iotProject, cloudRegion, forRegistry, deviceId);
   }
-
+  // tomerge
   private String extractConfigBlob(String blobName) {
     // TODO: Refactor to get any blob meta parameters.
     try {
@@ -1110,11 +1159,11 @@ public class Pubber extends ManagerBase implements ManagerHost {
       return stringify(endpointConfiguration);
     }
   }
-
+  // tomerge
   private void publishLogMessage(Entry logEntry, String targetId) {
     deviceManager.publishLogMessage(logEntry, targetId);
   }
-
+  // tomerge
   private void publishAsynchronousState() {
     if (stateLock.tryLock()) {
       try {
@@ -1134,6 +1183,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     }
   }
 
+  // tomerge
   void publishSynchronousState() {
     try {
       stateLock.lock();
@@ -1144,11 +1194,11 @@ public class Pubber extends ManagerBase implements ManagerHost {
       stateLock.unlock();
     }
   }
-
+  // tomerge
   boolean publisherActive() {
     return deviceTarget != null && deviceTarget.isActive();
   }
-
+  // tomerge
   private void publishStateMessage() {
     if (!publisherActive()) {
       markStateDirty(-1);
@@ -1160,7 +1210,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
         isoConvert(deviceState.system.last_config)));
     publishStateMessage(isTrue(options.badState) ? deviceState.system : deviceState);
   }
-
+  // tomerge
   private void publishStateMessage(Object stateToSend) {
     try {
       stateLock.lock();
@@ -1169,7 +1219,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
       stateLock.unlock();
     }
   }
-
+  // tomerge
   private void publishStateMessageRaw(Object stateToSend) {
     if (configLatch == null || configLatch.getCount() > 0) {
       warn("Dropping state update until config received...");
@@ -1204,19 +1254,19 @@ public class Pubber extends ManagerBase implements ManagerHost {
       throw new RuntimeException(format("While waiting for %s state send latch", deviceId), e);
     }
   }
-
+  // tomerge
   private boolean shouldSendState() {
     return !isGetTrue(() -> config.options.noState);
   }
-
+  // tomerge
   private void publishDeviceMessage(Object message) {
     publishDeviceMessage(deviceId, message);
   }
-
+  // tomerge
   private void publishDeviceMessage(String targetId, Object message) {
     publishDeviceMessage(targetId, message, null);
   }
-
+  // tomerge
   private void publishDeviceMessage(String targetId, Object message, Runnable callback) {
     if (deviceTarget == null) {
       error("publisher not active");
@@ -1251,23 +1301,26 @@ public class Pubber extends ManagerBase implements ManagerHost {
       throw new RuntimeException("While writing " + messageOut.getAbsolutePath(), e);
     }
   }
-
+  // tomerge
   private Object downgradeMessage(Object message) {
     MessageDowngrader messageDowngrader = new MessageDowngrader(SubType.STATE.value(), message);
     return ifNotNullGet(targetSchema, messageDowngrader::downgrade, message);
   }
 
-  private String traceTimestamp(String messageBase) {
+  @Override
+  public String traceTimestamp(String messageBase) {
     int serial = MESSAGE_COUNTS.computeIfAbsent(messageBase, key -> new AtomicInteger())
         .incrementAndGet();
     String timestamp = getTimestamp().replace("Z", format(".%03dZ", serial));
     return messageBase + (isTrue(config.options.messageTrace) ? ("_" + timestamp) : "");
   }
 
+  // tomerge
   private void cloudLog(String message, Level level) {
     cloudLog(message, level, null);
   }
 
+  // tomerge
   private void cloudLog(String message, Level level, String detail) {
     if (deviceManager != null) {
       deviceManager.cloudLog(message, level, detail);
@@ -1287,6 +1340,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     cloudLog(message, Level.DEBUG);
   }
 
+  // tomerge
   private void debug(String message, String detail) {
     cloudLog(message, Level.DEBUG, detail);
   }
@@ -1296,6 +1350,7 @@ public class Pubber extends ManagerBase implements ManagerHost {
     cloudLog(message, Level.INFO);
   }
 
+  // tomerge
   private void notice(String message) {
     cloudLog(message, Level.NOTICE);
   }
@@ -1321,6 +1376,112 @@ public class Pubber extends ManagerBase implements ManagerHost {
     deviceManager.localLog(message, Level.TRACE, getTimestamp(), stackTraceString(e));
   }
 
+  @Override
+  public void setLastStateTimeMs(long lastStateTimeMs) {
+    this.lastStateTimeMs = lastStateTimeMs;
+  }
+
+  @Override
+  public long getLastStateTimeMs() {
+    return this.lastStateTimeMs;
+  }
+
+  @Override
+  public CountDownLatch getConfigLatch() {
+    return this.configLatch;
+  }
+
+  @Override
+  public File getOutDir() {
+    return this.outDir;
+  }
+
+  @Override
+  public Lock getStateLock() {
+    return stateLock;
+  }
+
+  @Override
+  public EndpointConfiguration getExtractedEndpoint() {
+    return this.extractedEndpoint;
+  }
+
+  @Override
+  public void setExtractedEndpoint(EndpointConfiguration endpointConfiguration) {
+    this.extractedEndpoint = endpointConfiguration;
+  }
+
+  @Override
+  public String getWorkingEndpoint() {
+    return workingEndpoint;
+  }
+
+  @Override
+  public void setAttemptedEndpoint(String attemptedEndpoint) {
+    this.attemptedEndpoint = attemptedEndpoint;
+  }
+
+  @Override
+  public String getAttemptedEndpoint() {
+    return this.attemptedEndpoint;
+  }
+
+  @Override
+  public State getDeviceState() {
+    return deviceState;
+  }
+
+  @Override
+  public Config getDeviceConfig() {
+    return deviceConfig;
+  }
+
+  @Override
+  public DeviceManagerProvider getDeviceManager() {
+    return deviceManager;
+  }
+
+  @Override
+  public MqttDevice getDeviceTarget() {
+    return deviceTarget;
+  }
+
+  @Override
+  public void setDeviceTarget(MqttDevice deviceTarget) {
+    this.deviceTarget = deviceTarget;
+  }
+
+  @Override
+  public boolean isGatewayDevice() {
+    return isGatewayDevice;
+  }
+
+  @Override
+  public void setWorkingEndpoint(String jsonString) {
+    this.workingEndpoint = jsonString;
+  }
+
+  @Override
+  public void setConfigLatch(CountDownLatch countDownLatch) {
+    this.configLatch = countDownLatch;
+  }
+
+  @Override
+  public boolean isConnected() {
+    return isConnected;
+  }
+
+  @Override
+  public int getDeviceUpdateCount() {
+    return deviceUpdateCount;
+  }
+
+  @Override
+  public Map<Level, Consumer<String>> getLogMap() {
+    return LOG_MAP;
+  }
+
+  // tomerge
   public Metadata getMetadata(String id) {
     return siteModel.getMetadata(id);
   }
