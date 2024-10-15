@@ -5,28 +5,20 @@ import static com.google.udmi.util.GeneralUtils.getNow;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifNullThen;
-import static com.google.udmi.util.GeneralUtils.ifTrueGet;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
-import static com.google.udmi.util.GeneralUtils.isTrue;
 import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
-import static java.util.function.Predicate.not;
 import static udmi.schema.Category.GATEWAY_PROXY_TARGET;
 
 import com.google.udmi.util.SiteModel;
 import daq.pubber.client.GatewayManagerProvider;
 import daq.pubber.client.ProxyDeviceHostProvider;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import udmi.schema.Config;
 import udmi.schema.Entry;
 import udmi.schema.GatewayConfig;
 import udmi.schema.GatewayState;
 import udmi.schema.Level;
 import udmi.schema.Metadata;
-import udmi.schema.PointPointsetConfig;
-import udmi.schema.PointsetConfig;
 import udmi.schema.PubberConfiguration;
 
 /**
@@ -60,15 +52,14 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
     proxyDevices = ifNotNullGet(metadata.gateway, g -> createProxyDevices(g.proxy_ids));
   }
 
+  @Override
+  public void activate() {
+    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDeviceHostProvider::activate));
+  }
 
   @Override
   public ProxyDeviceHostProvider makeExtraDevice() {
     return new ProxyDevice(getHost(), EXTRA_PROXY_DEVICE, getConfig());
-  }
-
-  @Override
-  public void activate() {
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDeviceHostProvider::activate));
   }
 
   /**
@@ -104,13 +95,6 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
 
   /**
    * Sets the status of the gateway.
-   *
-   * @param category The category of the error or warning. This could be a specific module, service,
-   *                etc., that is causing the issue.
-   * @param level The severity level of the message. This can be used to determine how severe the
-   *              issue is and what action should be taken.
-   * @param message A detailed description of the status. This provides more information about the
-   *                current state of the gateway or any issues it may have encountered.
    */
   @Override
   public void setGatewayStatus(String category, Level level, String message) {
@@ -120,19 +104,6 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
     gatewayState.status.level = level.value();
     gatewayState.status.message = message;
     gatewayState.status.timestamp = getNow();
-  }
-
-  private void validateGatewayFamily(String family, String addr) {
-    if (!ProtocolFamily.FAMILIES.contains(family)) {
-      throw new IllegalArgumentException("Unrecognized address family " + family);
-    }
-
-    String expectedAddr = catchToNull(() -> metadata.localnet.families.get(family).addr);
-
-    if (expectedAddr != null && !expectedAddr.equals(addr)) {
-      throw new IllegalStateException(
-          format("Family address was %s, expected %s", addr, expectedAddr));
-    }
   }
 
   @Override
