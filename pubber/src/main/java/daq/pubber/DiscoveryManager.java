@@ -1,43 +1,27 @@
 package daq.pubber;
 
-import static com.google.udmi.util.GeneralUtils.catchToNull;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
-import static com.google.udmi.util.GeneralUtils.ifNullElse;
-import static com.google.udmi.util.GeneralUtils.ifNullThen;
-import static com.google.udmi.util.GeneralUtils.ifTrueGet;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
-import static com.google.udmi.util.GeneralUtils.isGetTrue;
 import static com.google.udmi.util.JsonUtil.isoConvert;
 import static daq.pubber.client.PubberHostProvider.DEVICE_START_TIME;
-import static java.lang.Math.floorMod;
 import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
-import static java.util.function.Predicate.not;
 import static java.util.stream.Collectors.toMap;
 import static udmi.schema.FamilyDiscoveryState.Phase.ACTIVE;
 import static udmi.schema.FamilyDiscoveryState.Phase.DONE;
 
-import com.google.common.collect.ImmutableMap;
 import com.google.udmi.util.SiteModel;
 import daq.pubber.client.DiscoveryManagerProvider;
-import daq.pubber.client.ManagerProvider;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Supplier;
 import udmi.schema.Depths;
-import udmi.schema.Depths.Depth;
 import udmi.schema.DiscoveryConfig;
 import udmi.schema.DiscoveryEvents;
 import udmi.schema.DiscoveryState;
-import udmi.schema.FamilyDiscovery;
-import udmi.schema.FamilyDiscoveryConfig;
 import udmi.schema.FamilyDiscoveryState;
-import udmi.schema.FamilyDiscoveryState.Phase;
-import udmi.schema.FamilyLocalnetModel;
-import udmi.schema.Metadata;
 import udmi.schema.PointPointsetModel;
 import udmi.schema.PubberConfiguration;
 import udmi.schema.RefDiscovery;
@@ -46,8 +30,7 @@ import udmi.schema.SystemDiscoveryData;
 /**
  * Manager wrapper for discovery functionality in pubber.
  */
-public class DiscoveryManager extends ManagerBase implements DiscoveryManagerProvider,
-    ManagerProvider {
+public class DiscoveryManager extends ManagerBase implements DiscoveryManagerProvider {
 
   public static final int SCAN_DURATION_SEC = 10;
 
@@ -60,13 +43,6 @@ public class DiscoveryManager extends ManagerBase implements DiscoveryManagerPro
       DeviceManager deviceManager) {
     super(host, configuration);
     this.deviceManager = deviceManager;
-  }
-
-  private static boolean shouldEnumerateTo(Depth depth) {
-    return ifNullElse(depth, false, d -> switch (d) {
-      case ENTRIES, DETAILS -> true;
-      default -> false;
-    });
   }
 
   static String getVendorRefKey(Map.Entry<String, PointPointsetModel> entry) {

@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import java.util.function.Supplier;
 import udmi.schema.Depths;
+import udmi.schema.Depths.Depth;
 import udmi.schema.DiscoveryConfig;
 import udmi.schema.DiscoveryState;
 import udmi.schema.FamilyDiscoveryConfig;
@@ -38,10 +39,10 @@ public interface DiscoveryManagerProvider extends ManagerProvider {
    * @param depth The depth level for which to determine if enumeration should occur.
    * @return True if enumeration is required at the specified depth level, false otherwise.
    */
-  static boolean shouldEnumerateTo(Depths.Depth depth) {
+  private static boolean shouldEnumerateTo(Depth depth) {
     return ifNullElse(depth, false, d -> switch (d) {
-      default -> false;
       case ENTRIES, DETAILS -> true;
+      default -> false;
     });
   }
 
