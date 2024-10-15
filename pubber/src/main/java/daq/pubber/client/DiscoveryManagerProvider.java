@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ScheduledFuture;
 import java.util.function.Supplier;
 import udmi.schema.Depths;
 import udmi.schema.DiscoveryConfig;
@@ -215,7 +216,7 @@ public interface DiscoveryManagerProvider extends ManagerProvider {
 
   void setDiscoveryConfig(DiscoveryConfig discoveryConfig);
 
-  void scheduleFuture(Date startGeneration, Runnable runnable);
+  ScheduledFuture<?> scheduleFuture(Date startGeneration, Runnable runnable);
 
   void startDiscoveryScan(String family, Date scanGeneration);
 

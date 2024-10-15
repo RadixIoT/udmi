@@ -7,6 +7,7 @@ import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.GeneralUtils.isTrue;
 import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
+import static java.util.function.Predicate.not;
 
 import com.google.udmi.util.SiteModel;
 import daq.pubber.ManagerHost;
@@ -54,16 +55,12 @@ public interface GatewayManagerProvider extends ManagerProvider {
     }
 
     Map<String, ProxyDeviceHostProvider> devices = new HashMap<>();
-    if (!proxyIds.isEmpty()) {
-      String firstId = proxyIds.stream().sorted().findFirst().orElseThrow();
-      String noProxyId = ifTrueGet(isTrue(getOptions().noProxy), () -> firstId);
-      ifNotNullThen(noProxyId, id -> warn(format("Not proxying device %s", noProxyId)));
-      proxyIds.forEach(id -> {
-        if (!id.equals(noProxyId)) {
-          devices.put(id, createProxyDevice(getHost(), id, getConfig()));
-        }
-      });
-    }
+
+    String firstId = proxyIds.stream().sorted().findFirst().orElse(null);
+    String noProxyId = ifTrueGet(isTrue(getOptions().noProxy), () -> firstId);
+    ifNotNullThen(noProxyId, id -> warn(format("Not proxying device %s", noProxyId)));
+    proxyIds.stream().filter(not(id -> id.equals(noProxyId)))
+        .forEach(id -> devices.put(id, new ProxyDevice(getHost(), id, getConfig())));
 
     ifTrueThen(getOptions().extraDevice, () -> devices.put(EXTRA_PROXY_DEVICE, makeExtraDevice()));
 

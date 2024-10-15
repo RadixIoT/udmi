@@ -674,11 +674,14 @@ public class MqttPublisher implements Publisher {
   /**
    * Marker class for sending using a bad topic not defined by a SubType/SubFolder.
    */
-  static class FakeTopic {
+  public static class FakeTopic {
     public String version;
     public Date timestamp;
   }
 
+  /**
+   * Injected state.
+   */
   public static class InjectedState extends InjectedMessage {
 
   }

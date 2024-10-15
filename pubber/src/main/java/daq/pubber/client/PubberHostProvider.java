@@ -1,5 +1,6 @@
 package daq.pubber.client;
 
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.udmi.util.GeneralUtils.catchToNull;
 import static com.google.udmi.util.GeneralUtils.deepCopy;
 import static com.google.udmi.util.GeneralUtils.fromJsonString;
@@ -18,10 +19,12 @@ import static com.google.udmi.util.JsonUtil.parseJson;
 import static com.google.udmi.util.JsonUtil.safeSleep;
 import static com.google.udmi.util.JsonUtil.stringify;
 import static daq.pubber.ManagerBase.WAIT_TIME_SEC;
+import static daq.pubber.ManagerBase.updateStateHolder;
 import static daq.pubber.MqttDevice.CONFIG_TOPIC;
 import static daq.pubber.MqttDevice.ERRORS_TOPIC;
 import static daq.pubber.MqttDevice.STATE_TOPIC;
 import static daq.pubber.MqttPublisher.DEFAULT_CONFIG_WAIT_SEC;
+import static daq.pubber.Pubber.SYSTEM_EVENT_TOPIC;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.Optional.ofNullable;
@@ -36,6 +39,7 @@ import com.google.udmi.util.SiteModel;
 import daq.pubber.GatewayError;
 import daq.pubber.ManagerHost;
 import daq.pubber.MqttDevice;
+import daq.pubber.MqttPublisher.FakeTopic;
 import daq.pubber.MqttPublisher.InjectedMessage;
 import daq.pubber.MqttPublisher.InjectedState;
 import daq.pubber.client.PointsetManagerProvider.ExtraPointsetEvent;
@@ -96,30 +100,35 @@ public interface PubberHostProvider extends ManagerHost {
       new Builder<Class<?>, String>()
           .put(State.class, STATE_TOPIC)
           .put(ExtraSystemState.class, STATE_TOPIC) // Used for badState option
-          .put(SystemEvents.class, PubberHostProvider.getEventsSuffix("system"))
-          .put(PointsetEvents.class, PubberHostProvider.getEventsSuffix("pointset"))
-          .put(ExtraPointsetEvent.class, PubberHostProvider.getEventsSuffix("pointset"))
-          .put(InjectedMessage.class, PubberHostProvider.getEventsSuffix("racoon"))
+          .put(SystemEvents.class, getEventsSuffix("system"))
+          .put(PointsetEvents.class, getEventsSuffix("pointset"))
+          .put(ExtraPointsetEvent.class, getEventsSuffix("pointset"))
+          .put(InjectedMessage.class, getEventsSuffix("system"))
+          .put(FakeTopic.class, getEventsSuffix("racoon"))
           .put(InjectedState.class, STATE_TOPIC)
-          .put(DiscoveryEvents.class, PubberHostProvider.getEventsSuffix("discovery"))
+          .put(DiscoveryEvents.class, getEventsSuffix("discovery"))
           .build();
 
-
+  String SYSTEM_CATEGORY_FORMAT = "system.%s.%s";
   Map<String, String> INVALID_REPLACEMENTS = ImmutableMap.of(
       "events/blobset", "\"\"",
       "events/discovery", "{}",
+      "events/gateway", "{ \"testing\": \"This is prematurely terminated",
       "events/mapping", "{ NOT VALID JSON!"
   );
   List<String> INVALID_KEYS = new ArrayList<>(INVALID_REPLACEMENTS.keySet());
-  String SYSTEM_CATEGORY_FORMAT = "system.%s.%s";
+
+  String SYSTEM_EVENT_TOPIC = "events/system";
+  String RAW_EVENT_TOPIC = "events";
+
   int STATE_THROTTLE_MS = 2000;
   int FORCED_STATE_TIME_MS = 10000;
   int DEFAULT_REPORT_SEC = 10;
   int MESSAGE_REPORT_INTERVAL = 10;
-  long INJECT_MESSAGE_DELAY_MS = 2000; // Delay to make sure testing is stable.
   String CORRUPT_STATE_MESSAGE = "!&*@(!*&@!";
+  long INJECT_MESSAGE_DELAY_MS = 1000; // Delay to make sure testing is stable.
 
-  Date DEVICE_START_TIME = PubberHostProvider.getRoundedStartTime();
+  Date DEVICE_START_TIME = getRoundedStartTime();
 
   State getDeviceState();
 
@@ -217,33 +226,23 @@ public interface PubberHostProvider extends ManagerHost {
 
   @Override
   default void update(Object update) {
-    requireNonNull(update, "null update message");
-    boolean markerClass = update instanceof Class<?>;
-    final Object checkValue = markerClass ? null : update;
-    final Object checkTarget;
-    try {
-      checkTarget = markerClass ? ((Class<?>) update).getConstructor().newInstance() : update;
-    } catch (Exception e) {
-      throw new RuntimeException("Could not create marker instance of class " + update.getClass());
-    }
-    if (checkTarget == this) {
+    if (update == null) {
       publishSynchronousState();
-    } else if (checkTarget instanceof SystemState) {
-      getDeviceState().system = (SystemState) checkValue;
-      ifTrueThen(getOptions().dupeState, this::sendDupeState);
-    } else if (checkTarget instanceof PointsetState) {
-      getDeviceState().pointset = (PointsetState) checkValue;
-    } else if (checkTarget instanceof LocalnetState) {
-      getDeviceState().localnet = (LocalnetState) checkValue;
-    } else if (checkTarget instanceof GatewayState) {
-      getDeviceState().gateway = (GatewayState) checkValue;
-    } else if (checkTarget instanceof DiscoveryState) {
-      getDeviceState().discovery = (DiscoveryState) checkValue;
-    } else {
-      throw new RuntimeException(
-          "Unrecognized update type " + checkTarget.getClass().getSimpleName());
+      return;
     }
+    updateStateHolder(getDeviceState(), update);
     markStateDirty();
+    if (update instanceof SystemState) {
+      ifTrueThen(getOptions().dupeState, this::sendPartialState);
+    }
+  }
+
+  private void sendPartialState() {
+    State dupeState = new State();
+    dupeState.system = getDeviceState().system;
+    dupeState.timestamp = getDeviceState().timestamp;
+    dupeState.version = getDeviceState().version;
+    publishStateMessage(dupeState);
   }
 
   private void sendDupeState() {
@@ -524,44 +523,6 @@ public interface PubberHostProvider extends ManagerHost {
 
     // Do redirect after restart system check, since this might take a long time.
     maybeRedirectEndpoint();
-  }
-
-
-  /**
-   * For testing, if configured, send a slate of bad messages for testing by the message handling
-   * infrastructure. Uses the sekrit REPLACE_MESSAGE_WITH field to sneak bad output into the pipe.
-   * E.g., Will send a message with "{ INVALID JSON!" as a message payload. Inserts a delay before
-   * each message sent to stabilize the output order for testing purposes.
-   */
-  default void sendEmptyMissingBadEvents() {
-    int phase = getDeviceUpdateCount() % MESSAGE_REPORT_INTERVAL;
-    if (!isTrue(getConfig().options.emptyMissing)
-        || (phase >= INVALID_REPLACEMENTS.size() + 2)) {
-      return;
-    }
-
-    safeSleep(INJECT_MESSAGE_DELAY_MS);
-
-    if (phase == 0) {
-      flushDirtyState();
-      InjectedState invalidState = new InjectedState();
-      invalidState.REPLACE_MESSAGE_WITH = CORRUPT_STATE_MESSAGE;
-      warn("Sending badly formatted state as per configuration");
-      publishStateMessage(invalidState);
-    } else if (phase == 1) {
-      InjectedMessage invalidEvent = new InjectedMessage();
-      invalidEvent.field = "bunny";
-      warn("Sending badly formatted message type");
-      publishDeviceMessage(invalidEvent);
-    } else {
-      String key = INVALID_KEYS.get(phase - 2);
-      InjectedMessage replacedEvent = new InjectedMessage();
-      replacedEvent.REPLACE_TOPIC_WITH = key;
-      replacedEvent.REPLACE_MESSAGE_WITH = INVALID_REPLACEMENTS.get(key);
-      warn("Sending badly formatted message of type " + key);
-      publishDeviceMessage(replacedEvent);
-    }
-    safeSleep(INJECT_MESSAGE_DELAY_MS);
   }
 
   /**
@@ -924,6 +885,11 @@ public interface PubberHostProvider extends ManagerHost {
    * @param callback A callback function to be executed after the message is sent.
    */
   default void publishDeviceMessage(String targetId, Object message, Runnable callback) {
+    if (getDeviceTarget() == null) {
+      error("publisher not active");
+      return;
+    }
+
     String topicSuffix = MESSAGE_TOPIC_SUFFIX_MAP.get(message.getClass());
     if (topicSuffix == null) {
       error("Unknown message class " + message.getClass());
@@ -940,14 +906,19 @@ public interface PubberHostProvider extends ManagerHost {
       return;
     }
 
+    if (isTrue(getOptions().noFolder) && topicSuffix.equals(SYSTEM_EVENT_TOPIC)) {
+      topicSuffix = RAW_EVENT_TOPIC;
+    }
+
     augmentDeviceMessage(message, getNow(), isTrue(getOptions().badVersion));
     Object downgraded = downgradeMessage(message);
     getDeviceTarget().publish(targetId, topicSuffix, downgraded, callback);
     String messageBase = topicSuffix.replace("/", "_");
     String gatewayId = getGatewayId(targetId, getConfig());
     String suffix = ifNotNullGet(gatewayId, x -> "_" + targetId, "");
-    File messageOut = new File(getOutDir(),
-        format("%s.json", traceTimestamp(messageBase + suffix)));
+    File messageOut = new File(getOutDir(), format("%s.json",
+        traceTimestamp(messageBase + suffix)));
+
     try {
       toJsonFile(messageOut, downgraded);
     } catch (Exception e) {
@@ -1019,7 +990,7 @@ public interface PubberHostProvider extends ManagerHost {
     }
   }
 
-  void ensureKeyBytes();
+  byte[] ensureKeyBytes();
 
   void publisherException(Exception toReport);
 

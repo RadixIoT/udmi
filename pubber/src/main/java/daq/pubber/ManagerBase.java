@@ -55,8 +55,10 @@ public abstract class ManagerBase implements ManagerProvider {
     this.host = host;
   }
 
-  // tomerge
-  protected static void updateStateHolder(State state, Object update) {
+  /**
+   * Updates state holder.
+   */
+  public static void updateStateHolder(State state, Object update) {
     requireNonNull(update, "null update message");
     state.timestamp = getNow();
     state.version = SchemaVersion.CURRENT.key();
@@ -93,7 +95,6 @@ public abstract class ManagerBase implements ManagerProvider {
    * Schedule a future for the futureTask parameter.
    *
    */
-  // tomerge
   public ScheduledFuture<?> scheduleFuture(Date futureTime, Runnable futureTask) {
     if (executor.isShutdown() || executor.isTerminated()) {
       throw new RuntimeException("Executor shutdown/terminated, not scheduling");

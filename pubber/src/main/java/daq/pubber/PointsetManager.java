@@ -79,13 +79,6 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
     return pointMetadata;
   }
 
-  // tomerge
-  private static PointPointsetEvents extraPointsetEvent() {
-    PointPointsetEvents pointPointsetEvent = new PointPointsetEvents();
-    pointPointsetEvent.present_value = 100;
-    return pointPointsetEvent;
-  }
-
   private AbstractPoint makePoint(String name, PointPointsetModel point) {
     if (BOOLEAN_UNITS.contains(point.units)) {
       return new RandomBoolean(name, point);
@@ -122,32 +115,6 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
     managedPoints.put(point.getName(), point);
   }
 
-  // tomerge
-  private void restorePoint(String pointName) {
-    if (pointsetState == null || pointName.equals(options.missingPoint)) {
-      return;
-    }
-
-    pointsetState.points.put(pointName, ifNotNullGet(managedPoints.get(pointName),
-        this::getTweakedPointState, invalidPoint(pointName)));
-    pointsetEvent.points.put(pointName, ifNotNullGet(managedPoints.get(pointName),
-        AbstractPoint::getData, new PointPointsetEvents()));
-  }
-
-  // tomerge
-  private PointPointsetState getTweakedPointState(AbstractPoint point) {
-    PointPointsetState state = point.getState();
-    // Tweak for testing: erroneously apply an applied state here.
-    ifTrueThen(point.getName().equals(options.extraPoint),
-        () -> state.value_state = ofNullable(state.value_state).orElse(Value_state.APPLIED));
-    return state;
-  }
-  // tomerge
-  private void suspendPoint(String pointName) {
-    pointsetState.points.remove(pointName);
-    pointsetEvent.points.remove(pointName);
-  }
-
   /**
    * updates the data of all points in the managedPoints map.
    */
@@ -161,38 +128,6 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
       }
       updateState(point);
     });
-  }
-
-  // tomerge
-  private void updateState() {
-    updateState(ofNullable((Object) pointsetState).orElse(PointsetState.class));
-  }
-
-  // tomerge
-  private void updateState(AbstractPoint point) {
-    String pointName = point.getName();
-
-    if (!pointsetState.points.containsKey(pointName)) {
-      return;
-    }
-
-    if (point.isDirty()) {
-      PointPointsetState state = getTweakedPointState(point); // Always call to clear the dirty bit
-      PointPointsetState useState = ifTrueGet(options.noPointState, PointPointsetState::new, state);
-      pointsetState.points.put(pointName, useState);
-      updateState();
-    }
-  }
-
-  // tomerge
-  private PointPointsetState invalidPoint(String pointName) {
-    PointPointsetState pointPointsetState = new PointPointsetState();
-    pointPointsetState.status = new Entry();
-    pointPointsetState.status.category = POINTSET_POINT_INVALID;
-    pointPointsetState.status.level = POINTSET_POINT_INVALID_VALUE;
-    pointPointsetState.status.message = "Unknown configured point " + pointName;
-    pointPointsetState.status.timestamp = getNow();
-    return pointPointsetState;
   }
 
   private void updatePointConfig(AbstractPoint point, PointPointsetConfig pointConfig) {
@@ -253,15 +188,6 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
     updateState();
   }
 
-  // tomerge
-  void updateConfig(PointsetConfig config) {
-    Integer rate = ifNotNullGet(config, c -> c.sample_rate_sec);
-    Integer limit = ifNotNullGet(config, c -> c.sample_limit_sec);
-    Integer max = Stream.of(rate, limit).filter(Objects::nonNull).reduce(Math::max).orElse(null);
-    updateInterval(max);
-    updatePointsetPointsConfig(config);
-  }
-
   @Override
   public void periodicUpdate() {
     try {
@@ -275,14 +201,6 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
     }
   }
 
-  // tomerge
-  private void sendDevicePoints() {
-    if (pointsetUpdateCount % Pubber.MESSAGE_REPORT_INTERVAL == 0) {
-      info(format("%s sending %s message #%d with %d points",
-          getTimestamp(), deviceId, pointsetUpdateCount, pointsetEvent.points.size()));
-    }
-    host.publish(pointsetEvent);
-  }
   @Override
   public int getPointsetUpdateCount() {
     return pointsetUpdateCount;
@@ -302,10 +220,5 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
   public PointsetState getPointsetState() {
     return pointsetState;
   }
-  static class ExtraPointsetEvent extends PointsetEvents {
 
-    // This extraField exists only to trigger schema parsing errors.
-    public Object extraField;
-
-  }
 }

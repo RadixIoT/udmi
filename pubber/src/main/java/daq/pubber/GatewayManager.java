@@ -16,6 +16,8 @@ import static udmi.schema.Category.GATEWAY_PROXY_TARGET;
 import com.google.udmi.util.SiteModel;
 import daq.pubber.client.GatewayManagerProvider;
 import daq.pubber.client.ProxyDeviceHostProvider;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import udmi.schema.Config;
 import udmi.schema.Entry;
@@ -39,25 +41,6 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
 
   public GatewayManager(ManagerHost host, PubberConfiguration configuration) {
     super(host, configuration);
-  }
-
-  // tomerge
-  private Map<String, ProxyDevice> createProxyDevices(List<String> proxyIds) {
-    if (proxyIds == null) {
-      return Map.of();
-    }
-
-    Map<String, ProxyDevice> devices = new HashMap<>();
-
-    String firstId = proxyIds.stream().sorted().findFirst().orElse(null);
-    String noProxyId = ifTrueGet(isTrue(options.noProxy), () -> firstId);
-    ifNotNullThen(noProxyId, id -> warn(format("Not proxying device %s", noProxyId)));
-    proxyIds.stream().filter(not(id -> id.equals(noProxyId)))
-        .forEach(id -> devices.put(id, new ProxyDevice(host, id, config)));
-
-    ifTrueThen(options.extraDevice, () -> devices.put(EXTRA_PROXY_DEVICE, makeExtraDevice()));
-
-    return devices;
   }
 
   /**
@@ -86,11 +69,6 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
   @Override
   public void activate() {
     ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDeviceHostProvider::activate));
-  }
-
-  // tomerge
-  ProxyDevice makeExtraDevice() {
-    return new ProxyDevice(host, EXTRA_PROXY_DEVICE, config);
   }
 
   /**
@@ -144,12 +122,6 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
     gatewayState.status.timestamp = getNow();
   }
 
-  // tomerge
-  private void updateState() {
-    updateState(ofNullable((Object) gatewayState).orElse(GatewayState.class));
-  }
-
-  // tomerge
   private void validateGatewayFamily(String family, String addr) {
     if (!ProtocolFamily.FAMILIES.contains(family)) {
       throw new IllegalArgumentException("Unrecognized address family " + family);
@@ -161,16 +133,6 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
       throw new IllegalStateException(
           format("Family address was %s, expected %s", addr, expectedAddr));
     }
-  }
-
-  // tomerge
-  private void configExtraDevice() {
-    Config config = new Config();
-    config.pointset = new PointsetConfig();
-    config.pointset.points = new HashMap<>();
-    PointPointsetConfig pointPointsetConfig = new PointPointsetConfig();
-    config.pointset.points.put(EXTRA_PROXY_POINT, pointPointsetConfig);
-    proxyDevices.get(EXTRA_PROXY_DEVICE).configHandler(config);
   }
 
   @Override

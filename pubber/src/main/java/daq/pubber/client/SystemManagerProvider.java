@@ -6,6 +6,7 @@ import static com.google.udmi.util.GeneralUtils.getTimestamp;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotTrueGet;
 import static com.google.udmi.util.GeneralUtils.ifNotTrueThen;
+import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.GeneralUtils.isTrue;
 import static com.google.udmi.util.JsonUtil.isoConvert;
 import static com.google.udmi.util.JsonUtil.stringify;
@@ -229,6 +230,7 @@ public interface SystemManagerProvider extends ManagerProvider {
    */
   default void publishLogMessage(Entry report) {
     if (shouldLogLevel(report.level)) {
+      ifTrueThen(getOptions().badLevel, () -> report.level = 0);
       getLogentries().add(report);
     }
   }

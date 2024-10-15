@@ -67,19 +67,6 @@ public class ProxyDevice extends ManagerBase implements ProxyDeviceHostProvider 
     pubberHost.publisherConfigLog("apply", null, deviceId);
   }
 
-
-  @Override
-  // tomerge
-  protected void shutdown() {
-    deviceManager.shutdown();
-  }
-
-
-  @Override
-  public void stop() {
-    deviceManager.stop();
-  }
-
   @Override
   public void publish(Object message) {
     if (active.get()) {

@@ -38,11 +38,13 @@ public interface PointsetManagerProvider extends ManagerLog {
    *
    * @return A new {@code PointPointsetEvents} instance with the present value initialized to 100.
    */
+
   static PointPointsetEvents extraPointsetEvent() {
     PointPointsetEvents pointPointsetEvent = new PointPointsetEvents();
     pointPointsetEvent.present_value = 100;
     return pointPointsetEvent;
   }
+
 
   ExtraPointsetEvent getPointsetEvent();
 
@@ -163,7 +165,7 @@ public interface PointsetManagerProvider extends ManagerLog {
    * Sends device points to the host.
    */
   default void sendDevicePoints() {
-    if (getPointsetUpdateCount() % Pubber.MESSAGE_REPORT_INTERVAL == 0) {
+    if (getPointsetUpdateCount() % PubberHostProvider.MESSAGE_REPORT_INTERVAL == 0) {
       info(format("%s sending %s message #%d with %d points",
           getTimestamp(), getDeviceId(), getPointsetUpdateCount(),
           getPointsetEvent().points.size()));
