@@ -5,7 +5,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.udmi.util.GeneralUtils.catchToFalse;
 import static com.google.udmi.util.GeneralUtils.catchToNull;
-import static com.google.udmi.util.GeneralUtils.deepCopy;
 import static com.google.udmi.util.GeneralUtils.friendlyStackTrace;
 import static com.google.udmi.util.GeneralUtils.fromJsonFile;
 import static com.google.udmi.util.GeneralUtils.fromJsonFileStrict;
@@ -20,23 +19,15 @@ import static com.google.udmi.util.GeneralUtils.optionsString;
 import static com.google.udmi.util.GeneralUtils.setClockSkew;
 import static com.google.udmi.util.GeneralUtils.stackTraceString;
 import static com.google.udmi.util.GeneralUtils.toJsonFile;
-import static com.google.udmi.util.GeneralUtils.toJsonString;
-import static com.google.udmi.util.JsonUtil.isoConvert;
 import static com.google.udmi.util.JsonUtil.safeSleep;
 import static com.google.udmi.util.JsonUtil.stringify;
-import static daq.pubber.MqttPublisher.DEFAULT_CONFIG_WAIT_SEC;
 import static daq.pubber.SystemManager.LOG_MAP;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNullElse;
 import static java.util.Optional.ofNullable;
 import static udmi.schema.EndpointConfiguration.Protocol.MQTT;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMap.Builder;
-import com.google.daq.mqtt.util.CatchingScheduledThreadPoolExecutor;
 import com.google.udmi.util.CertManager;
-import com.google.udmi.util.GeneralUtils;
-import com.google.udmi.util.MessageDowngrader;
 import com.google.udmi.util.SchemaVersion;
 import com.google.udmi.util.SiteModel;
 import com.google.udmi.util.SiteModel.MetadataException;
@@ -46,21 +37,13 @@ import daq.pubber.MqttPublisher.InjectedState;
 import daq.pubber.MqttPublisher.PublisherException;
 import daq.pubber.PubSubClient.Bundle;
 import daq.pubber.client.DeviceManagerProvider;
-import daq.pubber.client.PointsetManagerProvider.ExtraPointsetEvent;
 import daq.pubber.client.PubberHostProvider;
-import daq.pubber.client.SystemManagerProvider.ExtraSystemState;
 import java.io.File;
 import java.io.PrintStream;
-import java.lang.reflect.Field;
 import java.time.Duration;
-import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Date;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -72,37 +55,23 @@ import java.util.function.Function;
 import org.apache.http.ConnectionClosedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import udmi.schema.BlobBlobsetConfig;
-import udmi.schema.BlobBlobsetConfig.BlobPhase;
-import udmi.schema.BlobBlobsetState;
-import udmi.schema.BlobsetConfig.SystemBlobsets;
-import udmi.schema.BlobsetState;
-import udmi.schema.Category;
-import udmi.schema.CloudModel.Auth_type;
 import udmi.schema.Config;
 import udmi.schema.DevicePersistent;
-import udmi.schema.DiscoveryEvents;
 import udmi.schema.EndpointConfiguration;
 import udmi.schema.EndpointConfiguration.Protocol;
 import udmi.schema.Envelope;
 import udmi.schema.Envelope.SubFolder;
-import udmi.schema.Envelope.SubType;
 import udmi.schema.Level;
 import udmi.schema.Metadata;
 import udmi.schema.Operation.SystemMode;
-import udmi.schema.PointsetEvents;
 import udmi.schema.PubberConfiguration;
 import udmi.schema.PubberOptions;
-import udmi.schema.State;
-import udmi.schema.SystemEvents;
-import udmi.schema.SystemState;
 
 /**
  * IoT Core UDMI Device Emulator.
  */
 public class Pubber extends ManagerBase implements PubberHostProvider {
 
-  // tomerge properties
   public static final String PUBBER_OUT = "pubber/out";
   public static final String PERSISTENT_STORE_FILE = "persistent_data.json";
   public static final String PERSISTENT_TMP_FORMAT = "/tmp/pubber_%s_" + PERSISTENT_STORE_FILE;
@@ -118,8 +87,6 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
   private static final int CONNECT_RETRIES = 10;
   private static final AtomicInteger retriesRemaining = new AtomicInteger(CONNECT_RETRIES);
   private static final long RESTART_DELAY_MS = 1000;
-  private static final String CORRUPT_STATE_MESSAGE = "!&*@(!*&@!";
-  private static final long INJECT_MESSAGE_DELAY_MS = 1000; // Delay to make sure testing is stable.
 
   private static final Duration CLOCK_SKEW = Duration.ofMinutes(30);
   private static final int STATE_SPAM_SEC = 5; // Expected config-state response time.
@@ -200,7 +167,6 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
   /**
    * Start a pubber instance with command line args.
    *
-   * @param args The usual
    */
   public static void main(String[] args) {
     try {
@@ -461,7 +427,6 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
    * E.g., Will send a message with "{ INVALID JSON!" as a message payload. Inserts a delay before
    * each message sent to stabilize the output order for testing purposes.
    */
-  // tomerge
   private void sendEmptyMissingBadEvents() {
     if (!isTrue(config.options.emptyMissing)) {
       return;
@@ -613,15 +578,6 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
     writePersistentStore();
   }
 
-  @Override
-  public AtomicBoolean getStateDirty() {
-    return stateDirty;
-  }
-
-  @Override
-  public SchemaVersion getTargetSchema() {
-    return targetSchema;
-  }
 
   @Override
   public void resetConnection(String targetEndpoint) {
@@ -679,6 +635,17 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
     String longMessage = message + ": " + e.getMessage();
     cloudLog(longMessage, Level.ERROR);
     deviceManager.localLog(message, Level.TRACE, getTimestamp(), stackTraceString(e));
+  }
+
+
+  @Override
+  public AtomicBoolean getStateDirty() {
+    return stateDirty;
+  }
+
+  @Override
+  public SchemaVersion getTargetSchema() {
+    return targetSchema;
   }
 
   @Override
@@ -781,7 +748,6 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
     return LOG_MAP;
   }
 
-  // tomerge
   public Metadata getMetadata(String id) {
     return siteModel.getMetadata(id);
   }
