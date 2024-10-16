@@ -1,55 +1,37 @@
 package daq.pubber;
 
-import static com.google.udmi.util.GeneralUtils.catchOrElse;
-import static com.google.udmi.util.GeneralUtils.catchToNull;
 import static com.google.udmi.util.GeneralUtils.getTimestamp;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
-import static com.google.udmi.util.GeneralUtils.ifNotTrueGet;
-import static com.google.udmi.util.GeneralUtils.ifNotTrueThen;
-import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.GeneralUtils.isTrue;
 import static com.google.udmi.util.JsonUtil.isoConvert;
 import static java.lang.String.format;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.udmi.util.CleanDateFormat;
+import daq.pubber.client.PubberHostProvider;
 import daq.pubber.client.SystemManagerProvider;
 import java.io.File;
 import java.io.PrintStream;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.slf4j.Logger;
-import udmi.schema.DevicePersistent;
 import udmi.schema.Entry;
 import udmi.schema.Level;
-import udmi.schema.Metadata;
 import udmi.schema.Operation.SystemMode;
 import udmi.schema.PubberConfiguration;
 import udmi.schema.StateSystemHardware;
 import udmi.schema.StateSystemOperation;
 import udmi.schema.SystemConfig;
-import udmi.schema.SystemEvents;
-import udmi.schema.SystemState;
 
 /**
  * Support manager for system stuff.
  */
 public class SystemManager extends ManagerBase implements SystemManagerProvider {
 
-  // tomerge
   public static final String PUBBER_LOG_CATEGORY = "device.log";
   public static final String PUBBER_LOG = "pubber.log";
-  private static final Date DEVICE_START_TIME = Pubber.DEVICE_START_TIME;
-  private static final Map<SystemMode, Integer> EXIT_CODE_MAP = ImmutableMap.of(
-      SystemMode.SHUTDOWN, 0, // Indicates expected clean shutdown (success).
-      SystemMode.RESTART, 192, // Indicate process to be explicitly restarted.
-      SystemMode.TERMINATE, 193); // Indicates expected shutdown (failure code).
-  private static final Integer UNKNOWN_MODE_EXIT_CODE = -1;
+  private static final Date DEVICE_START_TIME = PubberHostProvider.DEVICE_START_TIME;
+
   private final List<Entry> logentries = new ArrayList<>();
   private final ExtraSystemState systemState;
   private final ManagerHost host;
