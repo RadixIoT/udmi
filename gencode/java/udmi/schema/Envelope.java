@@ -4,7 +4,6 @@ package udmi.schema;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
-import javax.annotation.processing.Generated;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -34,14 +33,8 @@ import com.fasterxml.jackson.annotation.JsonValue;
     "subFolder",
     "subType"
 })
-@Generated("jsonschema2pojo")
 public class Envelope {
 
-    /**
-     * 
-     * (Required)
-     * 
-     */
     @JsonProperty("deviceId")
     public String deviceId;
     @JsonProperty("deviceNumId")
@@ -55,11 +48,6 @@ public class Envelope {
     public String deviceRegistryId;
     @JsonProperty("deviceRegistryLocation")
     public String deviceRegistryLocation;
-    /**
-     * 
-     * (Required)
-     * 
-     */
     @JsonProperty("projectId")
     public String projectId;
     @JsonProperty("payload")
@@ -74,11 +62,6 @@ public class Envelope {
     public Date publishTime;
     @JsonProperty("rawFolder")
     public String rawFolder;
-    /**
-     * 
-     * (Required)
-     * 
-     */
     @JsonProperty("subFolder")
     public Envelope.SubFolder subFolder;
     @JsonProperty("subType")
@@ -115,7 +98,6 @@ public class Envelope {
         return ((((((((((((((this.deviceRegistryLocation == rhs.deviceRegistryLocation)||((this.deviceRegistryLocation!= null)&&this.deviceRegistryLocation.equals(rhs.deviceRegistryLocation)))&&((this.publishTime == rhs.publishTime)||((this.publishTime!= null)&&this.publishTime.equals(rhs.publishTime))))&&((this.subFolder == rhs.subFolder)||((this.subFolder!= null)&&this.subFolder.equals(rhs.subFolder))))&&((this.rawFolder == rhs.rawFolder)||((this.rawFolder!= null)&&this.rawFolder.equals(rhs.rawFolder))))&&((this.source == rhs.source)||((this.source!= null)&&this.source.equals(rhs.source))))&&((this.deviceId == rhs.deviceId)||((this.deviceId!= null)&&this.deviceId.equals(rhs.deviceId))))&&((this.transactionId == rhs.transactionId)||((this.transactionId!= null)&&this.transactionId.equals(rhs.transactionId))))&&((this.deviceNumId == rhs.deviceNumId)||((this.deviceNumId!= null)&&this.deviceNumId.equals(rhs.deviceNumId))))&&((this.payload == rhs.payload)||((this.payload!= null)&&this.payload.equals(rhs.payload))))&&((this.deviceRegistryId == rhs.deviceRegistryId)||((this.deviceRegistryId!= null)&&this.deviceRegistryId.equals(rhs.deviceRegistryId))))&&((this.subType == rhs.subType)||((this.subType!= null)&&this.subType.equals(rhs.subType))))&&((this.projectId == rhs.projectId)||((this.projectId!= null)&&this.projectId.equals(rhs.projectId))))&&((this.gatewayId == rhs.gatewayId)||((this.gatewayId!= null)&&this.gatewayId.equals(rhs.gatewayId))));
     }
 
-    @Generated("jsonschema2pojo")
     public enum SubFolder {
 
         UDMI("udmi"),
@@ -168,7 +150,6 @@ public class Envelope {
 
     }
 
-    @Generated("jsonschema2pojo")
     public enum SubType {
 
         INVALID("invalid"),

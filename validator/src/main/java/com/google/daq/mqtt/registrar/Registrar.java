@@ -1,11 +1,13 @@
 package com.google.daq.mqtt.registrar;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.Sets.difference;
 import static com.google.common.collect.Sets.intersection;
 import static com.google.daq.mqtt.util.ConfigUtil.UDMI_ROOT;
 import static com.google.udmi.util.Common.CLOUD_VERSION_KEY;
 import static com.google.udmi.util.Common.NO_SITE;
+import static com.google.udmi.util.Common.SEC_TO_MS;
 import static com.google.udmi.util.Common.SITE_METADATA_KEY;
 import static com.google.udmi.util.Common.UDMI_VERSION_KEY;
 import static com.google.udmi.util.GeneralUtils.CSV_JOINER;
@@ -41,7 +43,6 @@ import com.github.fge.jsonschema.core.load.download.URIDownloader;
 import com.github.fge.jsonschema.main.JsonSchema;
 import com.github.fge.jsonschema.main.JsonSchemaFactory;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
@@ -116,11 +117,12 @@ public class Registrar {
   private static final String MODEL_SUB_TYPE = "model";
   private static final boolean DEFAULT_BLOCK_UNKNOWN = false;
   private static final int EACH_ITEM_TIMEOUT_SEC = 60;
-  private static final int EXIT_CODE_ERROR = 1;
   private static final Map<String, Class<? extends Summarizer>> SUMMARIZERS = ImmutableMap.of(
       ".json", Summarizer.JsonSummarizer.class,
       ".csv", Summarizer.CsvSummarizer.class);
   private static final String TOOL_NAME = "registrar";
+  private static final long DELETE_FLUSH_DELAY_MS = 10 * SEC_TO_MS;
+  public static final String REGISTRAR_TOOL_NAME = "registrar";
   private final Map<String, JsonSchema> schemas = new HashMap<>();
   private final String generation = getGenerationString();
   private final Set<Summarizer> summarizers = new HashSet<>();
@@ -147,6 +149,7 @@ public class Registrar {
   private ExecutorService executor;
   private List<Future<?>> executing = new ArrayList<>();
   private SiteModel siteModel;
+  private boolean queryOnly;
 
   /**
    * Main entry point for registrar.
@@ -158,7 +161,7 @@ public class Registrar {
     } catch (Exception e) {
       System.err.println("Exception in main: " + friendlyStackTrace(e));
       e.printStackTrace();
-      System.exit(EXIT_CODE_ERROR);
+      System.exit(Common.EXIT_CODE_ERROR);
     }
 
     // Force exist because PubSub Subscriber in PubSubReflector does not shut down properly.
@@ -208,19 +211,20 @@ public class Registrar {
       String option = argList.remove(0);
       switch (option) {
         case "-r" -> setToolRoot(removeArg(argList, "tool root"));
-        case "-p" -> setProjectId(argList.remove(0));
-        case "-s" -> setSitePath(argList.remove(0));
+        case "-p" -> setProjectId(removeArg(argList, "project id"));
+        case "-s" -> setSitePath(removeArg(argList, "site path"));
         case "-a" -> setTargetRegistry(removeArg(argList, "alt registry"));
         case "-e" -> setRegistrySuffix(removeArg(argList, "registry suffix"));
-        case "-f" -> setFeedTopic(argList.remove(0));
+        case "-f" -> setFeedTopic(removeArg(argList, "feed topic"));
         case "-u" -> setUpdateFlag(true);
         case "-b" -> setBlockUnknown(true);
-        case "-l" -> setIdleLimit(argList.remove(0));
+        case "-l" -> setIdleLimit(removeArg(argList, "idle limit"));
         case "-t" -> setValidateMetadata(false);
+        case "-q" -> setQueryOnly(true);
         case "-d" -> setDeleteDevices(true);
         case "-x" -> setExpungeDevices(true);
-        case "-n" -> setRunnerThreads(argList.remove(0));
-        case "-c" -> setCreateRegistries(argList.remove(0));
+        case "-n" -> setRunnerThreads(removeArg(argList, "runner threads"));
+        case "-c" -> setCreateRegistries(removeArg(argList, "create registries"));
         case "--" -> {
           setDeviceList(argList);
           return this;
@@ -237,6 +241,10 @@ public class Registrar {
       }
     }
     return this;
+  }
+
+  private void setQueryOnly(boolean queryOnly) {
+    this.queryOnly = queryOnly;
   }
 
   private void setBlockUnknown(boolean block) {
@@ -456,12 +464,16 @@ public class Registrar {
   }
 
   private void initializeCloudProject() {
-    cloudIotManager = new CloudIotManager(siteModel.getExecutionConfiguration());
+    cloudIotManager = new CloudIotManager(siteModel.getExecutionConfiguration(),
+        REGISTRAR_TOOL_NAME);
     System.err.printf(
         "Working with project %s registry %s/%s%n",
         cloudIotManager.getProjectId(),
         cloudIotManager.getCloudRegion(),
         cloudIotManager.getRegistryId());
+
+    checkState(cloudIotManager.canUpdateCloud(),
+        "iot provider not properly initialized, can not update cloud");
 
     if (cloudIotManager.getUpdateTopic() != null) {
       updatePusher = new PubSubPusher(projectId, cloudIotManager.getUpdateTopic());
@@ -516,6 +528,12 @@ public class Registrar {
       Set<String> oldDevices = targetDevices.stream().filter(this::alreadyRegistered)
           .collect(Collectors.toSet());
       Set<String> newDevices = difference(targetDevices, oldDevices);
+
+      if (queryOnly) {
+        System.err.println("Skipping registration because query-only mode...");
+        return;
+      }
+
       System.err.printf("Processing %d new devices...%n", newDevices.size());
       int total = processLocalDevices(newDevices);
       System.err.printf("Updating %d existing devices...%n", oldDevices.size());
@@ -580,10 +598,15 @@ public class Registrar {
       synchronizedDelete(gateways);
       synchronizedDelete(others);
 
+      // There is a hidden race-condition in the Clearblade IoT API that will report a device
+      // as deleted (not listed in the registry), but still complain with an "already exists"
+      // error if it's attempted to be created. Just as a hack, add a sleep in here to make
+      // sure the backend is cleared out.
+      safeSleep(DELETE_FLUSH_DELAY_MS);
+
       Duration between = Duration.between(start, Instant.now());
       double seconds = between.getSeconds() + between.getNano() / 1e9;
-      System.err.printf("Deleted %d devices in %.03fs%n",
-          (gateways.size() + others.size()), seconds);
+      System.err.printf("Deleted %d devices in %.03fs%n", deviceSet.size(), seconds);
 
       Set<String> deviceIds = fetchCloudModels().keySet();
       Set<String> remaining = intersection(deviceIds, deviceSet);
@@ -817,7 +840,7 @@ public class Registrar {
   }
 
   private void reapExtraDevices(Set<String> current) {
-    File extrasDir = new File(siteDir, SiteModel.EXTRA_DEVICES_BASE);
+    File extrasDir = new File(siteDir, SiteModel.EXTRAS_DIR);
     String[] existing = ofNullable(extrasDir.list()).orElse(new String[0]);
     Set<String> previous = Arrays.stream(existing).collect(Collectors.toSet());
     difference(previous, current).forEach(expired -> {
@@ -993,7 +1016,7 @@ public class Registrar {
     System.err.printf("Binding devices to %s, already bound: %s%n",
         gatewayId, JOIN_CSV.join(boundDevices));
     int total = cloudModels.size() != 0 ? cloudModels.size() : localDevices.size();
-    Preconditions.checkState(boundDevices.size() != total,
+    checkState(boundDevices.size() != total,
         "all devices including the gateway can't be bound to one gateway!");
     return localDevice.getSettings().proxyDevices.stream()
         .filter(proxyDevice -> deviceSet == null || deviceSet.contains(proxyDevice))

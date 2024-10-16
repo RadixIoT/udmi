@@ -1,5 +1,7 @@
 package daq.pubber;
 
+import static com.google.udmi.util.GeneralUtils.getNow;
+import static com.google.udmi.util.GeneralUtils.getTimestamp;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifNotTrueThen;
@@ -30,7 +32,6 @@ import udmi.schema.PubberConfiguration;
 public class PointsetManager extends ManagerBase implements PointsetManagerProvider {
 
   private static final Set<String> BOOLEAN_UNITS = ImmutableSet.of("No-units");
-  private static final double DEFAULT_BASELINE_VALUE = 50;
 
   private static final Map<String, PointPointsetModel> DEFAULT_POINTS = ImmutableMap.of(
       "recalcitrant_angle", makePointPointsetModel(true, 50, 50, "Celsius"),
@@ -67,29 +68,11 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
   }
 
   private AbstractPoint makePoint(String name, PointPointsetModel point) {
-    boolean writable = point.writable != null && point.writable;
     if (BOOLEAN_UNITS.contains(point.units)) {
-      return new RandomBoolean(name, writable);
+      return new RandomBoolean(name, point);
     } else {
-      double baselineValue = convertValue(point.baseline_value, DEFAULT_BASELINE_VALUE);
-      double baselineTolerance = convertValue(point.baseline_tolerance, baselineValue);
-      double min = baselineValue - baselineTolerance;
-      double max = baselineValue + baselineTolerance;
-      return new RandomPoint(name, writable, min, max, point.units);
+      return new RandomPoint(name, point);
     }
-  }
-
-  private double convertValue(Object baselineValue, double defaultBaselineValue) {
-    if (baselineValue == null) {
-      return defaultBaselineValue;
-    }
-    if (baselineValue instanceof Double) {
-      return (double) baselineValue;
-    }
-    if (baselineValue instanceof Integer) {
-      return (double) (int) baselineValue;
-    }
-    throw new RuntimeException("Unknown value type " + baselineValue.getClass());
   }
 
   @Override
@@ -120,13 +103,6 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
     managedPoints.put(point.getName(), point);
   }
 
-
-  @Override
-  public void suspendPoint(String pointName) {
-    pointsetState.points.remove(pointName);
-    pointsetEvent.points.remove(pointName);
-  }
-
   /**
    * updates the data of all points in the managedPoints map.
    */
@@ -142,7 +118,6 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
     });
   }
 
-
   private void updatePointConfig(AbstractPoint point, PointPointsetConfig pointConfig) {
     ifNotTrueThen(options.noWriteback, () -> {
       point.setConfig(pointConfig);
@@ -152,7 +127,8 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
 
   /**
    * Updates the configuration of pointset points.
-   * */
+   *
+   */
   @Override
   public void updatePointsetPointsConfig(PointsetConfig config) {
     if (config == null) {
@@ -201,7 +177,6 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
     updateState();
   }
 
-
   @Override
   public void periodicUpdate() {
     try {
@@ -221,7 +196,7 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
   }
 
   @Override
-  public ExtraPointsetEvent getPointsetEvent() {
+  public PointsetManagerProvider.ExtraPointsetEvent getPointsetEvent() {
     return pointsetEvent;
   }
 
@@ -234,4 +209,5 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
   public PointsetState getPointsetState() {
     return pointsetState;
   }
+
 }

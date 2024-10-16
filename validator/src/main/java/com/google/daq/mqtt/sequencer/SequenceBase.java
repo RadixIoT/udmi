@@ -9,7 +9,6 @@ import static com.google.daq.mqtt.sequencer.SequenceBase.Capabilities.LAST_CONFI
 import static com.google.daq.mqtt.sequencer.semantic.SemanticValue.actualize;
 import static com.google.daq.mqtt.util.CloudIotManager.EMPTY_CONFIG;
 import static com.google.daq.mqtt.util.ConfigManager.configFrom;
-import static com.google.daq.mqtt.util.IotReflectorClient.REFLECTOR_PREFIX;
 import static com.google.daq.mqtt.util.TimePeriodConstants.TWO_MINUTES_MS;
 import static com.google.daq.mqtt.validator.Validator.ATTRIBUTE_FILE_FORMAT;
 import static com.google.daq.mqtt.validator.Validator.MESSAGE_FILE_FORMAT;
@@ -26,6 +25,7 @@ import static com.google.udmi.util.GeneralUtils.friendlyStackTrace;
 import static com.google.udmi.util.GeneralUtils.getTimestamp;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
+import static com.google.udmi.util.GeneralUtils.ifNotTrueGet;
 import static com.google.udmi.util.GeneralUtils.ifNotTrueThen;
 import static com.google.udmi.util.GeneralUtils.ifNullThen;
 import static com.google.udmi.util.GeneralUtils.ifTrueGet;
@@ -54,6 +54,7 @@ import static udmi.schema.Bucket.UNKNOWN_DEFAULT;
 import static udmi.schema.Category.VALIDATION_FEATURE_CAPABILITY;
 import static udmi.schema.Category.VALIDATION_FEATURE_SCHEMA;
 import static udmi.schema.Category.VALIDATION_FEATURE_SEQUENCE;
+import static udmi.schema.Envelope.SubFolder.UPDATE;
 import static udmi.schema.FeatureDiscovery.FeatureStage.ALPHA;
 import static udmi.schema.FeatureDiscovery.FeatureStage.PREVIEW;
 import static udmi.schema.FeatureDiscovery.FeatureStage.STABLE;
@@ -113,6 +114,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -145,6 +147,8 @@ import udmi.schema.ExecutionConfiguration;
 import udmi.schema.FeatureDiscovery;
 import udmi.schema.FeatureDiscovery.FeatureStage;
 import udmi.schema.FeatureValidationState;
+import udmi.schema.IotAccess;
+import udmi.schema.IotAccess.IotProvider;
 import udmi.schema.Level;
 import udmi.schema.Metadata;
 import udmi.schema.Operation;
@@ -205,7 +209,7 @@ public class SequenceBase {
   );
   private static final Map<String, AtomicInteger> UPDATE_COUNTS = new HashMap<>();
   private static final String LOCAL_PREFIX = "local_";
-  private static final String UPDATE_SUBFOLDER = SubFolder.UPDATE.value();
+  private static final String UPDATE_SUBFOLDER = UPDATE.value();
   private static final String STATE_SUBTYPE = SubType.STATE.value();
   private static final String CONFIG_SUBTYPE = SubType.CONFIG.value();
   private static final String LOCAL_CONFIG_UPDATE = LOCAL_PREFIX + UPDATE_SUBFOLDER;
@@ -239,12 +243,16 @@ public class SequenceBase {
   private static final String FAKE_DEVICE_ID = "TAP-1";
   private static final String NO_EXTRA_DETAIL = "no logs";
   private static final Duration DEFAULT_WAIT_TIME = Duration.ofSeconds(10);
+  private static final Duration CONFIG_WAIT_TIME = Duration.ofSeconds(30);
   private static final Duration LOG_WAIT_TIME = Duration.ofSeconds(30);
   private static final Duration DEFAULT_LOOP_TIMEOUT = Duration.ofHours(30);
   private static final Set<String> SYSTEM_STATE_CHANGES = ImmutableSet.of(
       "timestamp", "system.last_config", "system.status");
   private static final long EVENT_WAIT_DELAY_MS = 1000;
   private static final Duration STATE_TIMESTAMP_ERROR_THRESHOLD = Duration.ofMinutes(20);
+  private static final Set<IotAccess.IotProvider> SEQUENCER_PROVIDERS = ImmutableSet.of(
+      IotProvider.GBOS, IotProvider.MQTT, IotProvider.GREF);
+  public static final String SEQUENCER_TOOL_NAME = "sequencer";
   protected static Metadata deviceMetadata;
   protected static String projectId;
   protected static String cloudRegion;
@@ -312,7 +320,9 @@ public class SequenceBase {
   private Description testDescription;
   private SubFolder testSchema;
   private int lastStatusLevel;
-  private CaptureMap otherEvents = new CaptureMap();
+  private final CaptureMap otherEvents = new CaptureMap();
+  private final AtomicBoolean waitingForConfigSync = new AtomicBoolean();
+  private static String sessionPrefix;
 
   private static void setupSequencer() {
     exeConfig = SequenceRunner.ensureExecutionConfig();
@@ -325,8 +335,6 @@ public class SequenceBase {
       siteModel = new SiteModel(checkNotNull(exeConfig.site_model, "site_model not defined"));
       projectId = checkNotNull(exeConfig.project_id, "project_id not defined");
       checkNotNull(exeConfig.udmi_version, "udmi_version not defined");
-      String serial = checkNotNull(exeConfig.serial_no, "serial_no not defined");
-      serialNo = serial.equals(SERIAL_NO_MISSING) ? null : serial;
       logLevel = Level.valueOf(checkNotNull(exeConfig.log_level, "log_level not defined"))
           .value();
       key_file = checkNotNull(exeConfig.key_file, "key_file not defined");
@@ -340,6 +348,9 @@ public class SequenceBase {
 
     deviceMetadata = readDeviceMetadata();
 
+    serialNo = ofNullable(exeConfig.serial_no)
+        .orElseGet(() -> GeneralUtils.catchToNull(() -> deviceMetadata.system.serial_no));
+
     File baseOutputDir = siteModel.getSubdirectory("out");
     deviceOutputDir = new File(baseOutputDir, "devices/" + getDeviceId());
     deviceOutputDir.mkdirs();
@@ -350,8 +361,8 @@ public class SequenceBase {
 
     System.err.printf("Loading reflector key file from %s%n", new File(key_file).getAbsolutePath());
     System.err.printf("Validating against device %s serial %s%n", getDeviceId(), serialNo);
-    client = getPublisherClient();
-    ifNotNullThen(validationState, state -> state.cloud_version = client.getVersionInformation());
+    client = checkNotNull(getPublisherClient(), "primary client not created");
+    sessionPrefix = client.getSessionPrefix();
 
     String udmiNamespace = exeConfig.udmi_namespace;
     String altRegistryId = exeConfig.alt_registry;
@@ -386,16 +397,11 @@ public class SequenceBase {
     altConfiguration.udmi_namespace = exeConfig.udmi_namespace;
     altConfiguration.alt_registry = null;
 
-    try {
-      return new IotReflectorClient(altConfiguration, getRequiredFunctionsVersion());
-    } catch (Exception e) {
-      System.err.println(
-          "Could not connect to alternate registry, disabling: " + friendlyStackTrace(e));
-      if (traceLogLevel()) {
-        e.printStackTrace();
-      }
-      return null;
-    }
+    return getReflectorClient(altConfiguration);
+  }
+
+  private static boolean messageFilter(Envelope envelope) {
+    return true;
   }
 
   private static int getRequiredFunctionsVersion() {
@@ -505,7 +511,7 @@ public class SequenceBase {
           Map.Entry::getKey, SequenceBase::summarizeSchemaResults));
 
       schemaResult.stages.forEach((stage, entry) -> {
-        SequenceResult result = RESULT_LEVEL_MAP.inverse().get(Level.fromValue(entry.level));
+        SequenceResult result = RESULT_LEVEL_MAP.inverse().get(levelFromValue(entry.level));
         String stageValue = stage.value();
         String schemaStage = schema + "_" + stageValue;
         emitSequenceResult(result, SCHEMA_BUCKET, schemaStage, stageValue.toUpperCase(),
@@ -546,7 +552,26 @@ public class SequenceBase {
   }
 
   private static MessagePublisher getReflectorClient() {
-    return new IotReflectorClient(exeConfig, getRequiredFunctionsVersion());
+    if (!SEQUENCER_PROVIDERS.contains(exeConfig.iot_provider)) {
+      throw new IllegalArgumentException(
+          format("IoT Provider '%s' not supported, should be one of: %s", exeConfig.iot_provider,
+              CSV_JOINER.join(SEQUENCER_PROVIDERS)));
+    }
+    return getReflectorClient(exeConfig);
+  }
+
+  private static IotReflectorClient getReflectorClient(ExecutionConfiguration config) {
+    try {
+      return new IotReflectorClient(config, getRequiredFunctionsVersion(),
+          SEQUENCER_TOOL_NAME, SequenceBase::messageFilter);
+    } catch (Exception e) {
+      System.err.println(
+          "Could not connect to alternate registry, disabling: " + friendlyStackTrace(e));
+      if (traceLogLevel()) {
+        e.printStackTrace();
+      }
+      return null;
+    }
   }
 
   private static MessagePublisher altReflector() {
@@ -717,9 +742,7 @@ public class SequenceBase {
    */
   @Before
   public void setUp() {
-    if (activeInstance == null) {
-      throw new IllegalStateException("Active sequencer instance not setup, aborting");
-    }
+    checkNotNull(activeInstance, "Active sequencer instance not setup, aborting");
 
     assumeTrue(format("Feature bucket %s not enabled", testBucket.key()),
         isBucketEnabled(testBucket));
@@ -828,11 +851,16 @@ public class SequenceBase {
   }
 
   private void waitForConfigSync() {
+    checkState(!waitingForConfigSync.getAndSet(true), "Config is already updating...");
     try {
-      whileDoing("config sync", () -> messageEvaluateLoop(this::configIsPending));
+      waitFor("config sync", CONFIG_WAIT_TIME, () -> {
+        processNextMessage();
+        return configIsPending(false);
+      });
       Duration between = Duration.between(lastConfigUpdate, CleanDateFormat.clean(Instant.now()));
       debug(format("Configuration sync took %ss", between.getSeconds()));
     } finally {
+      waitingForConfigSync.set(false);
       debug("wait for config sync pending " + configIsPending(true));
     }
   }
@@ -1087,7 +1115,7 @@ public class SequenceBase {
 
   private String entryMessage(Entry logEntry) {
     return format("%s %s %s: %s", isoConvert(logEntry.timestamp),
-        Level.fromValue(logEntry.level).name(), logEntry.category, logEntry.message);
+        levelFromValue(logEntry.level).name(), logEntry.category, logEntry.message);
   }
 
   private void writeSystemLogs(SystemEvents message) {
@@ -1108,12 +1136,16 @@ public class SequenceBase {
       throw new RuntimeException("log entry timestamp is null");
     }
     String messageStr = format("%s %s %s", isoConvert(logEntry.timestamp),
-        Level.fromValue(logEntry.level), logEntry.message);
+        levelFromValue(logEntry.level).name(), logEntry.message);
 
     PrintWriter output = ofNullable(printWriter).orElse(new PrintWriter(System.err));
     output.println(messageStr);
     output.flush();
     return messageStr;
+  }
+
+  private static Level levelFromValue(Integer level) {
+    return catchToElse(() -> Level.fromValue(level), Level.INVALID);
   }
 
   private boolean stateTransactionPending() {
@@ -1156,7 +1188,7 @@ public class SequenceBase {
   private void assertConfigIsNotPending() {
     if (!configTransactions.isEmpty()) {
       throw new RuntimeException(
-          "Unexpected config transactions: " + configTransactionsListString());
+          "Unexpected pending config transactions: " + configTransactionsListString());
     }
   }
 
@@ -1166,6 +1198,7 @@ public class SequenceBase {
 
   private void updateConfig(String reason, boolean force) {
     assertConfigIsNotPending();
+
     // Add a forced sleep to make sure second-quantized timestamps are unique.
     safeSleep(CONFIG_BARRIER_MS);
 
@@ -1179,9 +1212,9 @@ public class SequenceBase {
     } else {
       if (force) {
         debug("Forcing config update");
-        sentConfig.remove(SubFolder.UPDATE);
+        sentConfig.remove(UPDATE);
       }
-      updateConfig(SubFolder.UPDATE, deviceConfig);
+      updateConfig(UPDATE, deviceConfig);
     }
 
     if (configIsPending()) {
@@ -1217,6 +1250,11 @@ public class SequenceBase {
     } catch (Exception e) {
       throw new RuntimeException("While updating config block " + subBlock, e);
     }
+  }
+
+  protected void updateProxyConfig(String proxyId, Config proxyConfig) {
+    String configMessage = stringify(proxyConfig);
+    client.publish(proxyId, Common.UPDATE_CONFIG_TOPIC, configMessage);
   }
 
   private void captureConfigChange(String reason) {
@@ -1345,7 +1383,7 @@ public class SequenceBase {
   protected void waitFor(String description, Duration maxWait, Supplier<String> evaluator) {
     AtomicReference<String> detail = new AtomicReference<>();
     whileDoing(description, () -> {
-      updateConfig("Before " + description);
+      ifNotTrueThen(waitingForConfigSync.get(), () -> updateConfig("Before " + description));
       recordSequence("Wait for " + description);
       messageEvaluateLoop(maxWait, () -> {
         String result = evaluator.get();
@@ -1446,10 +1484,15 @@ public class SequenceBase {
     try {
       try {
         action.run();
+      } catch (AbortMessageLoop e) {
+        // This is some fundamental problem, so just pass it along without the waiting detail.
+        catcher.accept(e);
+        throw e;
       } catch (Exception e) {
         catcher.accept(e);
         String detail = ifNotNullGet(detailer, Supplier::get);
         ifNotNullThen(detail, this::waitingConditionDetail);
+        // Don't include the caught exception in order to preserve the detail as base cause.
         throw ifNotNullGet(detail, message -> new RuntimeException("Because " + message), e);
       }
     } catch (Exception e) {
@@ -1583,12 +1626,14 @@ public class SequenceBase {
         stashedBundle = null;
         return bundle;
       }
-      if (!reflector().isActive()) {
-        throw new RuntimeException("Trying to receive message from inactive client");
+      MessagePublisher reflector = reflector();
+      if (!reflector.isActive()) {
+        throw new RuntimeException(
+            "Trying to receive message from inactive client " + reflector.getSubscriptionId());
       }
       final MessageBundle bundle;
       try {
-        bundle = reflector().takeNextMessage(QuerySpeed.SHORT);
+        bundle = reflector.takeNextMessage(QuerySpeed.SHORT);
       } catch (Exception e) {
         throw new AbortMessageLoop("Exception receiving message", e);
       }
@@ -1645,13 +1690,13 @@ public class SequenceBase {
 
       if (proxiedDevice) {
         handleProxyMessage(deviceId, envelope, message);
-      } else if (SubFolder.UPDATE.value().equals(subFolderRaw)) {
+      } else if (UPDATE.value().equals(subFolderRaw)) {
         handleUpdateMessage(subTypeRaw, message, transactionId);
       } else {
         handleDeviceMessage(message, subTypeRaw, subFolderRaw, transactionId);
       }
     } catch (Exception e) {
-      throw new RuntimeException(
+      throw new AbortMessageLoop(
           format("While processing message %s_%s %s", subTypeRaw, subFolderRaw, transactionId), e);
     }
   }
@@ -1712,7 +1757,7 @@ public class SequenceBase {
         if (CONFIG_SUBTYPE.equals(subTypeRaw)) {
           ifTrueThen(configTransactions.remove(txnId),
               () -> debug("Removed configTransaction " + txnId));
-        } else if (STATE_SUBTYPE.equals(subTypeRaw) && txnId.startsWith(REFLECTOR_PREFIX)) {
+        } else if (STATE_SUBTYPE.equals(subTypeRaw) && txnId.startsWith(sessionPrefix)) {
           String expected = stateTransaction.getAndSet(null);
           if (txnId.equals(expected)) {
             debug("Removed stateTransaction " + txnId);
@@ -1744,11 +1789,8 @@ public class SequenceBase {
         }
         List<DiffEntry> changes = updateDeviceConfig(config);
         debug(format("Updated config %s %s", isoConvert(config.timestamp), txnId));
-        if (updateCount == 1) {
-          info(format("Initial config #%03d", updateCount), stringify(deviceConfig));
-        } else {
-          info(format("Updated config #%03d", updateCount), changedLines(changes));
-        }
+        String changeUpdate = updateCount == 1 ? stringify(deviceConfig) : changedLines(changes);
+        info(format("Updated config #%03d", updateCount), changeUpdate);
       } else if (converted instanceof State convertedState) {
         String timestamp = isoConvert(convertedState.timestamp);
         if (convertedState.timestamp == null) {
@@ -1894,10 +1936,10 @@ public class SequenceBase {
   }
 
   private boolean configIsPending() {
-    return configIsPending(false);
+    return configIsPending(false) != null;
   }
 
-  private boolean configIsPending(boolean debugOut) {
+  private String configIsPending(boolean debugOut) {
     Date stateLastStart = catchToNull(() -> deviceState.system.operation.last_start);
     Date configLastStart = catchToNull(() -> deviceConfig.system.operation.last_start);
     boolean lastStartSynced = stateLastStart == null || stateLastStart.equals(configLastStart);
@@ -1906,19 +1948,22 @@ public class SequenceBase {
     boolean lastConfigSynced = stateLastConfig == null || stateLastConfig.equals(lastConfig);
     boolean transactionsClean = configTransactions.isEmpty();
     boolean synced = lastStartSynced && transactionsClean && lastConfigSynced;
-    boolean pending = !synced;
     if (debugOut) {
-      if (pending) {
+      if (!synced) {
         notice(format("last_start synchronized %s: state/%s =? config/%s", lastStartSynced,
             isoConvert(stateLastStart), isoConvert(configLastStart)));
-        notice(format("pending configTransactions: %s", configTransactionsListString()));
+        notice(format("configTransactions flushed %s: %s", transactionsClean,
+            configTransactionsListString()));
         notice(format("last_config synchronized %s: state/%s =? config/%s", lastConfigSynced,
             isoConvert(stateLastConfig), isoConvert(lastConfig)));
       } else if (stateLastConfig == null) {
         debug("last_config synchronized check disabled due to missing state.system.last_config");
       }
     }
-    return !synced;
+    return ifNotTrueGet(synced,
+        () -> format("waiting for last_start %s, transactions %s, last_config %s",
+            !lastStartSynced,
+            !transactionsClean, !lastConfigSynced));
   }
 
   @NotNull
@@ -2022,10 +2067,12 @@ public class SequenceBase {
     checkState(deviceConfig.system.testing.endpoint_type == null, "endpoint type not null");
     try {
       useAlternateClient = true;
+      warning("Now using alternate connection client!");
       deviceConfig.system.testing.endpoint_type = "alternate";
       whileDoing("using alternate client", evaluator);
     } finally {
       useAlternateClient = false;
+      warning("Done with alternate connection client!");
       catchToNull(() -> deviceConfig.system.testing.endpoint_type = null);
     }
   }
@@ -2324,7 +2371,10 @@ public class SequenceBase {
     }
   }
 
-  static class CaptureMap extends HashMap<SubFolder, List<Map<String, Object>>> {
+  /**
+   * Map of captured messages for a device, grouped by SubFolder.
+   */
+  protected static class CaptureMap extends HashMap<SubFolder, List<Map<String, Object>>> {
 
   }
 
@@ -2375,7 +2425,15 @@ public class SequenceBase {
         sequenceMd = new PrintWriter(newOutputStream(new File(testDir, SEQUENCE_MD).toPath()));
 
         putSequencerResult(description, SequenceResult.START);
+
+        client.activate();
+        ifNotNullThen(validationState,
+            state -> state.cloud_version = client.getVersionInformation());
+
+        ifNotNullThen(altClient, IotReflectorClient::activate);
         checkState(reflector().isActive(), "Reflector is not currently active");
+
+        activeInstance = SequenceBase.this;
 
         validateTestSpecification(description);
 
@@ -2388,7 +2446,10 @@ public class SequenceBase {
         startTestTimeMs = System.currentTimeMillis();
         notice("starting test " + testName + " " + START_END_MARKER);
 
-        activeInstance = SequenceBase.this;
+      } catch (IllegalArgumentException e) {
+        putSequencerResult(description, ERRR);
+        recordCompletion(ERRR, description, friendlyStackTrace(e));
+        throw e;
       } catch (Exception e) {
         trace("Exception stack:", stackTraceString(e));
         putSequencerResult(description, ERRR);

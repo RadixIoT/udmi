@@ -9,6 +9,7 @@ import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.Optional.ofNullable;
 
+import com.google.udmi.util.Common;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
@@ -19,9 +20,11 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import udmi.schema.CloudModel;
+import udmi.schema.Envelope;
 import udmi.schema.Envelope.SubFolder;
 import udmi.schema.IotAccess;
 
@@ -55,10 +58,14 @@ public class DynamicIotAccessProvider extends IotAccessBase {
     return providerId;
   }
 
+  private IotAccessProvider getProviderFor(Envelope envelope) {
+    return getProviderFor(envelope.deviceRegistryId);
+  }
+
   private IotAccessProvider getProviderFor(String registryId) {
-    IotAccessProvider provider =
-        getProviders().get(registryProviders.computeIfAbsent(registryId, this::determineProvider));
-    return requireNonNull(provider, "could not determine provider for " + registryId);
+    String providerKey = registryProviders.computeIfAbsent(registryId, this::determineProvider);
+    IotAccessProvider provider = getProviders().get(providerKey);
+    return requireNonNull(provider, "Could not determine provider for " + registryId);
   }
 
   private Map<String, IotAccessProvider> getProviders() {
@@ -135,8 +142,8 @@ public class DynamicIotAccessProvider extends IotAccessBase {
   }
 
   @Override
-  public CloudModel listDevices(String registryId) {
-    return getProviderFor(registryId).listDevices(registryId);
+  public CloudModel listDevices(String registryId, Consumer<Integer> progress) {
+    return getProviderFor(registryId).listDevices(registryId, progress);
   }
 
   @Override
@@ -152,31 +159,32 @@ public class DynamicIotAccessProvider extends IotAccessBase {
   }
 
   @Override
-  public String modifyConfig(String registryId, String deviceId,
-      Function<Entry<Long, String>, String> munger) {
-    return getProviderFor(registryId).modifyConfig(registryId, deviceId, munger);
+  public String modifyConfig(Envelope envelope, Function<Entry<Long, String>, String> munger) {
+    return getProviderFor(envelope).modifyConfig(envelope, munger);
   }
 
   @Override
-  public void sendCommandBase(String registryId, String deviceId, SubFolder folder,
+  public void sendCommandBase(Envelope envelope, SubFolder folder,
       String message) {
-    getProviderFor(registryId).sendCommandBase(registryId, deviceId, folder, message);
+    getProviderFor(envelope).sendCommandBase(envelope, folder, message);
   }
 
   @Override
   public void setProviderAffinity(String registryId, String deviceId, String providerId) {
     if (providerId != null) {
-      String previous = registryProviders.put(registryId, providerId);
+      int index = providerId.indexOf(Common.SOURCE_SEPARATOR);
+      String affinity = providerId.substring(0, index < 0 ? providerId.length() : index);
+      String previous = registryProviders.put(registryId, affinity);
       if (!providerId.equals(previous)) {
         debug(format("Switching registry affinity for %s from %s -> %s", registryId, previous,
-            providerId));
+            affinity));
       }
     }
     super.setProviderAffinity(registryId, deviceId, providerId);
   }
 
   @Override
-  public String updateConfig(String registryId, String deviceId, String config, Long version) {
+  public String updateConfig(Envelope envelope, String config, Long version) {
     throw new RuntimeException("Shouldn't be called for dynamic provider");
   }
 

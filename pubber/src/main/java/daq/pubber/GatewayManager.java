@@ -1,10 +1,12 @@
 package daq.pubber;
 
 import static com.google.udmi.util.GeneralUtils.catchToNull;
+import static com.google.udmi.util.GeneralUtils.getNow;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifNullThen;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
+import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
 import static udmi.schema.Category.GATEWAY_PROXY_TARGET;
 
@@ -50,20 +52,20 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
     proxyDevices = ifNotNullGet(metadata.gateway, g -> createProxyDevices(g.proxy_ids));
   }
 
+  @Override
+  public void activate() {
+    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDeviceHostProvider::activate));
+  }
 
   @Override
   public ProxyDeviceHostProvider makeExtraDevice() {
     return new ProxyDevice(getHost(), EXTRA_PROXY_DEVICE, getConfig());
   }
 
-  @Override
-  public void activate() {
-    ifNotNullThen(proxyDevices, p -> p.values().forEach(ProxyDeviceHostProvider::activate));
-  }
-
-
   /**
-   * Update gateway operation based off of a gateway configuration block.
+   * Update gateway operation based off of a gateway configuration block. This happens in two
+   * slightly different forms, one for the gateway proper (primarily indicating what devices
+   * should be proxy targets), and the other for the proxy devices themselves.
    */
   @Override
   public void updateConfig(GatewayConfig gateway) {
@@ -79,7 +81,10 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
 
     if (gateway.proxy_ids == null || gateway.target != null) {
       try {
-        String family = validateGatewayFamily(catchToNull(() -> gateway.target.family));
+        String addr = catchToNull(() -> gateway.target.addr);
+        String family = ofNullable(catchToNull(() -> gateway.target.family))
+            .orElse(ProtocolFamily.VENDOR);
+        validateGatewayFamily(family, addr);
         setGatewayStatus(GATEWAY_PROXY_TARGET, Level.DEBUG, "gateway target family " + family);
       } catch (Exception e) {
         setGatewayStatus(GATEWAY_PROXY_TARGET, Level.ERROR, e.getMessage());
@@ -90,13 +95,6 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
 
   /**
    * Sets the status of the gateway.
-   *
-   * @param category The category of the error or warning. This could be a specific module, service,
-   *                etc., that is causing the issue.
-   * @param level The severity level of the message. This can be used to determine how severe the
-   *              issue is and what action should be taken.
-   * @param message A detailed description of the status. This provides more information about the
-   *                current state of the gateway or any issues it may have encountered.
    */
   @Override
   public void setGatewayStatus(String category, Level level, String message) {
@@ -105,8 +103,8 @@ public class GatewayManager extends ManagerBase implements GatewayManagerProvide
     gatewayState.status.category = category;
     gatewayState.status.level = level.value();
     gatewayState.status.message = message;
+    gatewayState.status.timestamp = getNow();
   }
-
 
   @Override
   public void shutdown() {

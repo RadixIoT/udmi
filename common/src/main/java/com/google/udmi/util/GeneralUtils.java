@@ -61,14 +61,13 @@ public class GeneralUtils {
       .enable(SerializationFeature.INDENT_OUTPUT)
       .setDateFormat(new ISO8601DateFormat())
       .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-      .setSerializationInclusion(JsonInclude.Include.NON_NULL);
+      .setSerializationInclusion(Include.NON_NULL);
   public static final ObjectMapper OBJECT_MAPPER_RAW =
       OBJECT_MAPPER.copy()
           .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
           .enable(Feature.ALLOW_TRAILING_COMMA)
           .enable(Feature.STRICT_DUPLICATE_DETECTION)
-          .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-          .setSerializationInclusion(Include.NON_NULL);
+          .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
   public static final ObjectMapper OBJECT_MAPPER_STRICT =
       OBJECT_MAPPER_RAW.copy()
           .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
@@ -99,8 +98,8 @@ public class GeneralUtils {
    * the target class is "final" but the fields themselves need to be updated.
    *
    * @param from source object
-   * @param to   target object
-   * @param <T>  type of object
+   * @param to target object
+   * @param <T> type of object
    */
   public static <T> void copyFields(T from, T to, boolean includeNull) {
     Field[] fields = from.getClass().getDeclaredFields();
@@ -178,12 +177,20 @@ public class GeneralUtils {
     return messages;
   }
 
-  public static <T> T fromJsonFile(File path, Class<T> valueType) {
+  private static <T> T fromJsonFile(File path, Class<T> valueType, ObjectMapper objectMapper) {
     try {
-      return OBJECT_MAPPER.readValue(path, valueType);
+      return OBJECT_MAPPER_STRICT.readValue(path, valueType);
     } catch (Exception e) {
       throw new RuntimeException("While loading json file " + path.getAbsolutePath(), e);
     }
+  }
+
+  public static <T> T fromJsonFile(File path, Class<T> valueType) {
+    return fromJsonFile(path, valueType, OBJECT_MAPPER);
+  }
+
+  public static <T> T fromJsonFileStrict(File path, Class<T> valueType) {
+    return fromJsonFile(path, valueType, OBJECT_MAPPER_STRICT);
   }
 
   public static <T> T fromJsonString(String body, Class<T> valueType) {
@@ -290,12 +297,17 @@ public class GeneralUtils {
     return value == null ? elseResult : converter.apply(value);
   }
 
-  public static <T, V> V ifNullElse(T value, V elseResult, Function<T, V> converter) {
-    return value == null ? elseResult : converter.apply(value);
+  public static <T, V> V ifNotNullGetElse(T value, Function<T, V> converter,
+      Supplier<V> elseResult) {
+    return value == null ? elseResult.get() : converter.apply(value);
   }
 
   public static <T, V> V ifNotNullGet(T value, Supplier<V> converter) {
     return value == null ? null : converter.get();
+  }
+
+  public static <T, V> V ifNullElse(T value, V elseResult, Function<T, V> converter) {
+    return value == null ? elseResult : converter.apply(value);
   }
 
   public static void ifNullThen(Object value, Runnable action) {

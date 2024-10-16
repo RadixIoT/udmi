@@ -2,6 +2,7 @@ package daq.pubber;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.udmi.util.Common.SEC_TO_MS;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.GeneralUtils.isTrue;
@@ -197,7 +198,7 @@ public class MqttPublisher implements Publisher {
     try {
       String payload = getMessagePayload(data);
       String sendTopic = getSendTopic(deviceId, getMessageTopic(topicSuffix, data));
-      info("Sending message to " + sendTopic);
+      debug("Sending message to " + sendTopic);
       sendMessage(deviceId, sendTopic, payload.getBytes());
       if (callback != null) {
         callback.run();
@@ -297,8 +298,8 @@ public class MqttPublisher implements Publisher {
 
   private MqttClient newProxyClient(String deviceId) {
     String gatewayId = getGatewayId(deviceId);
-    debug(format("Connecting device %s through gateway %s", deviceId, gatewayId));
-    final MqttClient mqttClient = getConnectedClient(gatewayId);
+    info(format("Connecting device %s through gateway %s", deviceId, gatewayId));
+    final MqttClient mqttClient = getConnectedClient(gatewayId, true);
     long timeToWait = mqttClient.getTimeToWait();
     try {
       startupLatchWait(connectionLatch, "gateway startup exchange");
@@ -488,9 +489,11 @@ public class MqttPublisher implements Publisher {
     String mqttTopic = getMessageTopic(deviceId, mqttSuffix);
     String handlerKey = getHandlerKey(mqttTopic);
     if (handler == null) {
+      info(format("Removing handler %s", handlerKey));
       handlers.remove(handlerKey);
       handlersType.remove(handlerKey);
     } else if (handlers.put(handlerKey, (Consumer<Object>) handler) == null) {
+      info(format("Registered handler for %s as %s", handlerKey, messageType.getSimpleName()));
       handlersType.put(handlerKey, (Class<Object>) messageType);
     } else {
       throw new IllegalStateException("Overwriting existing handler " + handlerKey);
@@ -517,7 +520,7 @@ public class MqttPublisher implements Publisher {
 
   public void connect(String targetId, boolean clean) {
     ifTrueThen(clean, () -> closeMqttClient(targetId));
-    getConnectedClient(targetId);
+    getConnectedClient(targetId, true);
   }
 
   private void success(String message, String deviceId, String type, String phase) {
@@ -551,12 +554,12 @@ public class MqttPublisher implements Publisher {
   private MqttClient getActiveClient(String targetId) {
     while (true) {
       checkAuthentication(targetId);
-      MqttClient connectedClient = getConnectedClient(targetId);
-      if (connectedClient.isConnected()) {
+      MqttClient connectedClient = getConnectedClient(targetId, false);
+      if (connectedClient != null && connectedClient.isConnected()) {
         return connectedClient;
       }
-      info("Client not active, deferring message...");
-      safeSleep(DEFAULT_CONFIG_WAIT_SEC);
+      info(format("Client %s not active, deferring message...", targetId));
+      safeSleep(DEFAULT_CONFIG_WAIT_SEC * SEC_TO_MS);
     }
   }
 
@@ -587,10 +590,13 @@ public class MqttPublisher implements Publisher {
     }
   }
 
-  private MqttClient getConnectedClient(String deviceId) {
+  private MqttClient getConnectedClient(String deviceId, boolean proxyActiveOnly) {
     try {
       synchronized (mqttClients) {
         if (isProxyDevice(deviceId)) {
+          if (!proxyActiveOnly && !mqttClients.containsKey(deviceId)) {
+            return null;
+          }
           return mqttClients.computeIfAbsent(deviceId, this::newProxyClient);
         }
         return mqttClients.computeIfAbsent(deviceId, this::newDirectClient);
@@ -666,7 +672,15 @@ public class MqttPublisher implements Publisher {
   }
 
   /**
-   * Represents the state of an {@link InjectedMessage}.
+   * Marker class for sending using a bad topic not defined by a SubType/SubFolder.
+   */
+  public static class FakeTopic {
+    public String version;
+    public Date timestamp;
+  }
+
+  /**
+   * Injected state.
    */
   public static class InjectedState extends InjectedMessage {
 
@@ -711,7 +725,7 @@ public class MqttPublisher implements Publisher {
       Consumer<Object> handler = handlers.get(handlerKey);
       Class<Object> type = handlersType.get(handlerKey);
       if (handler == null) {
-        error("Missing handler", deviceId, messageType, "receive",
+        error("Missing handler " + handlerKey, deviceId, messageType, "receive",
             new RuntimeException("No registered handler for topic " + topic));
         handlersType.put(handlerKey, Object.class);
         handlers.put(handlerKey, this::ignoringHandler);

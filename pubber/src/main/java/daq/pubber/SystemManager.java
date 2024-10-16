@@ -1,24 +1,22 @@
 package daq.pubber;
 
-import static com.google.udmi.util.GeneralUtils.catchOrElse;
-import static com.google.udmi.util.GeneralUtils.catchToNull;
 import static com.google.udmi.util.GeneralUtils.getTimestamp;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.isTrue;
 import static com.google.udmi.util.JsonUtil.isoConvert;
 import static java.lang.String.format;
 
+import com.google.common.collect.ImmutableMap;
+import daq.pubber.client.PubberHostProvider;
 import daq.pubber.client.SystemManagerProvider;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import udmi.schema.Entry;
 import udmi.schema.Level;
-import udmi.schema.Metadata;
 import udmi.schema.Operation.SystemMode;
 import udmi.schema.PubberConfiguration;
 import udmi.schema.StateSystemHardware;
@@ -30,11 +28,13 @@ import udmi.schema.SystemConfig;
  */
 public class SystemManager extends ManagerBase implements SystemManagerProvider {
 
+  public static final String PUBBER_LOG_CATEGORY = "device.log";
   public static final String PUBBER_LOG = "pubber.log";
-  private static final Date DEVICE_START_TIME = Pubber.DEVICE_START_TIME;
+  private static final Date DEVICE_START_TIME = PubberHostProvider.DEVICE_START_TIME;
 
   private final List<Entry> logentries = new ArrayList<>();
   private final ExtraSystemState systemState;
+  private final ManagerHost host;
   private int systemEventCount;
   private SystemConfig systemConfig;
   private boolean publishingLog;
@@ -44,6 +44,7 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
    */
   public SystemManager(ManagerHost host, PubberConfiguration configuration) {
     super(host, configuration);
+    this.host = host;
 
     if (host instanceof Pubber pubberHost) {
       initializeLogger(pubberHost);
@@ -62,9 +63,7 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
 
     systemState.operation.operational = true;
     systemState.operation.mode = SystemMode.INITIAL;
-    if (host instanceof Pubber) {
-      systemState.serial_no = configuration.serialNo;
-    }
+    systemState.serial_no = configuration.serialNo;
     systemState.last_config = new Date(0);
 
     ifNotNullThen(options.extraField, value -> systemState.extraField = value);
@@ -91,38 +90,10 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
     }
   }
 
-  /**
-   * Retrieves the hardware and software from metadata.
-   *
-   * @param metadata the input metadata.
-   */
-  @Override
-  public void setHardwareSoftware(Metadata metadata) {
-
-    systemState.hardware.make = catchOrElse(
-        () -> metadata.system.hardware.make, () -> DEFAULT_MAKE);
-
-    systemState.hardware.model = catchOrElse(
-        () -> metadata.system.hardware.model, () -> DEFAULT_MODEL);
-
-    systemState.software = new HashMap<>();
-    Map<String, String> metadataSoftware = catchToNull(() -> metadata.system.software);
-    if (metadataSoftware == null) {
-      systemState.software.put(DEFAULT_SOFTWARE_KEY, DEFAULT_SOFTWARE_VALUE);
-    } else {
-      systemState.software = metadataSoftware;
-    }
-
-    if (options.softwareFirmwareValue != null) {
-      systemState.software.put("firmware", options.softwareFirmwareValue);
-    }
-  }
-
   @Override
   public SystemManagerProvider.ExtraSystemState getSystemState() {
     return this.systemState;
   }
-
 
   @Override
   public Date getDeviceStartTime() {
@@ -138,7 +109,7 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
   public void systemLifecycle(SystemMode mode) {
     systemState.operation.mode = mode;
     try {
-      host.update(host);
+      host.update(null);
     } catch (Exception e) {
       error("Squashing error publishing state while shutting down", e);
     }
@@ -146,7 +117,6 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
     error("Stopping system with extreme prejudice, restart " + mode + " with code " + exitCode);
     System.exit(exitCode);
   }
-
 
   @Override
   public void localLog(String message, Level level, String timestamp, String detail) {
@@ -168,8 +138,6 @@ public class SystemManager extends ManagerBase implements SystemManagerProvider 
       throw new RuntimeException("While writing log output file", e);
     }
   }
-
-
 
   @Override
   public List<Entry> getLogentries() {

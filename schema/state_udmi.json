@@ -16,6 +16,10 @@
       "description": "Version of the UDMI schema",
       "type": "string"
     },
+    "source": {
+      "description": "Indicator of where this source update came from",
+      "type": "string"
+    },
     "regions": {
       "title": "Regions Udmi State",
       "type": "object",
@@ -35,9 +39,17 @@
           "type": "string",
           "description": "User id of the person running the tool"
         },
+        "msg_source": {
+          "type": "string",
+          "description": "Source parameter to use for this connection stream"
+        },
         "update_to": {
           "type": "string",
           "description": "Optional version for a udmis update trigger"
+        },
+        "tool_name": {
+          "type": "string",
+          "description": "Name of the tool being used" 
         },
         "transaction_id": {
           "type": "string"

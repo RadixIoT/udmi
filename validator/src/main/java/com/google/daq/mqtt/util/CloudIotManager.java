@@ -14,11 +14,12 @@ import static java.nio.file.Files.readAllBytes;
 import static java.util.Objects.requireNonNull;
 import static java.util.Optional.ofNullable;
 import static udmi.schema.IotAccess.IotProvider.GBOS;
-import static udmi.schema.IotAccess.IotProvider.GCP_NATIVE;
 import static udmi.schema.IotAccess.IotProvider.MQTT;
+import static udmi.schema.IotAccess.IotProvider.PUBSUB;
 
 import com.google.common.collect.ImmutableList;
 import com.google.udmi.util.GeneralUtils;
+import com.google.udmi.util.IotProvider;
 import com.google.udmi.util.MetadataMapKeys;
 import com.google.udmi.util.SiteModel;
 import java.io.File;
@@ -53,6 +54,7 @@ public class CloudIotManager {
   private final String registryId;
   private final String projectId;
   private final String cloudRegion;
+  private final String toolName;
   private final Map<String, CloudModel> deviceMap = new ConcurrentHashMap<>();
   private final File siteModel;
   private final boolean useReflectClient;
@@ -63,11 +65,12 @@ public class CloudIotManager {
    * Create a new CloudIoTManager.
    */
   public CloudIotManager(String projectId, File siteDir, String altRegistry,
-      String registrySuffix, IotAccess.IotProvider iotProvider) {
+      String registrySuffix, IotAccess.IotProvider iotProvider, String toolName) {
+    this.toolName = toolName;
     checkNotNull(projectId, "project id undefined");
     this.siteModel = checkNotNull(siteDir, "site directory undefined");
     checkState(siteDir.isDirectory(), "not a directory " + siteDir.getAbsolutePath());
-    this.useReflectClient = iotProvider != null && iotProvider != GCP_NATIVE;
+    this.useReflectClient = iotProvider != null && iotProvider != PUBSUB;
     this.projectId = projectId;
     File cloudConfig = new File(siteDir, CLOUD_IOT_CONFIG_JSON);
     try {
@@ -88,19 +91,13 @@ public class CloudIotManager {
   }
 
   /**
-   * Create a new iot manager using a full configuration file.
-   */
-  public CloudIotManager(File siteConfig) {
-    this(readExeConfig(siteConfig));
-  }
-
-  /**
    * New instance from a configuration profile.
    */
-  public CloudIotManager(ExecutionConfiguration config) {
+  public CloudIotManager(ExecutionConfiguration config, String toolName) {
     try {
       this.projectId = requireNonNull(config.project_id, "no project_id defined");
       this.useReflectClient = shouldUseReflectorClient(config);
+      this.toolName = toolName;
       File model = new File(config.site_model != null ? config.site_model : ".");
       siteModel = model.isAbsolute() ? model
           : new File(new File(config.src_file).getParentFile(), model.getPath());
@@ -124,7 +121,7 @@ public class CloudIotManager {
 
   private static boolean shouldUseReflectorClient(ExecutionConfiguration config) {
     return (config.reflector_endpoint != null)
-        || ofNullable(config.iot_provider).orElse(GCP_NATIVE) != GCP_NATIVE;
+        || ofNullable(config.iot_provider).orElse(PUBSUB) != PUBSUB;
   }
 
   /**
@@ -173,7 +170,9 @@ public class CloudIotManager {
   private void initializeIotProvider() {
     try {
       iotProvider = makeIotProvider();
-      System.err.println("Created service for project " + projectId);
+      System.err.printf(
+          "Instantiated iot provider %s as %s%n", executionConfiguration.iot_provider,
+          ofNullable(iotProvider).map(p -> p.getClass().getSimpleName()).orElse("undefined"));
     } catch (Exception e) {
       throw new RuntimeException("While initializing Cloud IoT project " + projectId, e);
     }
@@ -189,10 +188,10 @@ public class CloudIotManager {
 
     if (useReflectClient) {
       System.err.println("Using reflector iot client");
-      return new IotReflectorClient(executionConfiguration);
+      return new IotReflectorClient(executionConfiguration, toolName);
     }
 
-    if (executionConfiguration.iot_provider == GCP_NATIVE) {
+    if (executionConfiguration.iot_provider == PUBSUB) {
       return null;
     }
 
@@ -217,7 +216,7 @@ public class CloudIotManager {
     } else {
       exceptions.capture("updating", () -> updateDevice(deviceId, settings, device));
     }
- 
+
     if (settings.config != null) {
       exceptions.capture("configuring", () -> writeDeviceConfig(deviceId, settings.config));
     }
@@ -254,11 +253,11 @@ public class CloudIotManager {
   }
 
   private void writeDeviceConfig(String deviceId, String config) {
-    iotProvider.updateConfig(deviceId, SubFolder.UPDATE, config);
+    getIotProvider().updateConfig(deviceId, SubFolder.UPDATE, config);
   }
 
   public void modifyConfig(String deviceId, SubFolder subFolder, String config) {
-    iotProvider.updateConfig(deviceId, subFolder, config);
+    getIotProvider().updateConfig(deviceId, subFolder, config);
   }
 
   /**
@@ -268,7 +267,7 @@ public class CloudIotManager {
    * @param blocked  should this device be blocked?
    */
   public void blockDevice(String deviceId, boolean blocked) {
-    iotProvider.setBlocked(deviceId, blocked);
+    getIotProvider().setBlocked(deviceId, blocked);
   }
 
   private CloudModel makeDevice(CloudDeviceSettings settings, CloudModel oldDevice) {
@@ -304,14 +303,14 @@ public class CloudIotManager {
   private void createDevice(String deviceId, CloudDeviceSettings settings) {
     CloudModel newDevice = makeDevice(settings, null);
     limitValueSizes(newDevice.metadata);
-    iotProvider.createResource(deviceId, newDevice);
+    getIotProvider().createResource(deviceId, newDevice);
     deviceMap.put(deviceId, newDevice);
   }
 
   private void updateDevice(String deviceId, CloudDeviceSettings settings, CloudModel oldDevice) {
     CloudModel device = makeDevice(settings, oldDevice);
     limitValueSizes(device.metadata);
-    iotProvider.updateDevice(deviceId, device);
+    getIotProvider().updateDevice(deviceId, device);
   }
 
   /**
@@ -320,7 +319,7 @@ public class CloudIotManager {
   public void modifyDevice(String deviceId, CloudModel update) {
     limitValueSizes(update.metadata);
     update.operation = Operation.MODIFY;
-    iotProvider.updateDevice(deviceId, update);
+    getIotProvider().updateDevice(deviceId, update);
   }
 
   private void limitValueSizes(Map<String, String> metadata) {
@@ -330,7 +329,7 @@ public class CloudIotManager {
   }
 
   public SetupUdmiConfig getVersionInformation() {
-    return iotProvider.getVersionInformation();
+    return getIotProvider().getVersionInformation();
   }
 
   /**
@@ -339,7 +338,7 @@ public class CloudIotManager {
    * @return registered device list
    */
   public Map<String, CloudModel> fetchCloudModels() {
-    return iotProvider.fetchCloudModels(null);
+    return getIotProvider().fetchCloudModels(null);
   }
 
   /**
@@ -348,7 +347,7 @@ public class CloudIotManager {
    * @return registered device list
    */
   public Set<String> fetchBoundDevices(String gatewayId) {
-    return ifNotNullGet(iotProvider.fetchCloudModels(gatewayId), Map::keySet);
+    return ifNotNullGet(getIotProvider().fetchCloudModels(gatewayId), Map::keySet);
   }
 
   public CloudModel fetchDevice(String deviceId) {
@@ -356,7 +355,7 @@ public class CloudIotManager {
   }
 
   private CloudModel fetchDeviceRaw(String deviceId) {
-    return iotProvider.fetchDevice(deviceId);
+    return getIotProvider().fetchDevice(deviceId);
   }
 
   /**
@@ -405,19 +404,19 @@ public class CloudIotManager {
   }
 
   public void bindDevice(String proxyDeviceId, String gatewayDeviceId) {
-    iotProvider.bindDeviceToGateway(proxyDeviceId, gatewayDeviceId);
+    getIotProvider().bindDeviceToGateway(proxyDeviceId, gatewayDeviceId);
   }
 
   public List<Object> getMockActions() {
-    return iotProvider.getMockActions();
+    return getIotProvider().getMockActions();
   }
 
   public void shutdown() {
-    iotProvider.shutdown();
+    ifNotNullThen(iotProvider, IotProvider::shutdown);
   }
 
   public void deleteDevice(String deviceId) {
-    iotProvider.deleteDevice(deviceId);
+    getIotProvider().deleteDevice(deviceId);
     deviceMap.remove(deviceId);
   }
 
@@ -427,8 +426,8 @@ public class CloudIotManager {
   public String createRegistry(String suffix) {
     CloudModel settings = new CloudModel();
     settings.resource_type = Resource_type.REGISTRY;
-    settings.credentials = List.of(iotProvider.getCredential());
-    iotProvider.createResource(suffix, settings);
+    settings.credentials = List.of(getIotProvider().getCredential());
+    getIotProvider().createResource(suffix, settings);
     return requireNonNull(settings.num_id, "Missing registry name in reply");
   }
 
@@ -445,10 +444,18 @@ public class CloudIotManager {
     registryModel.metadata.put(
         MetadataMapKeys.UDMI_METADATA, toJsonString(siteMetadata)
     );
-    iotProvider.updateRegistry(registryModel);
+    getIotProvider().updateRegistry(registryModel);
   }
 
   public String getSiteDir() {
     return executionConfiguration.site_model;
+  }
+
+  private IotProvider getIotProvider() {
+    return checkNotNull(iotProvider, "iot provider not properly initialized");
+  }
+
+  public boolean canUpdateCloud() {
+    return iotProvider != null;
   }
 }

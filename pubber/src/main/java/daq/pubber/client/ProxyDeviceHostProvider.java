@@ -1,6 +1,7 @@
 package daq.pubber.client;
 
 import static com.google.udmi.util.GeneralUtils.friendlyStackTrace;
+import static daq.pubber.ManagerBase.updateStateHolder;
 import static java.lang.String.format;
 
 import daq.pubber.FamilyProvider;
@@ -10,6 +11,7 @@ import daq.pubber.MqttDevice;
 import java.util.concurrent.atomic.AtomicBoolean;
 import udmi.schema.Config;
 import udmi.schema.Metadata;
+import udmi.schema.State;
 
 /**
  * Proxy Device host provider.
@@ -57,14 +59,9 @@ public interface ProxyDeviceHostProvider extends ManagerHost, ManagerLog {
     getPubberHost().publisherConfigLog("apply", null, getDeviceId());
   }
 
-  default void shutdown() {
-    getDeviceManager().shutdown();
-  }
+  void shutdown();
 
-
-  default void stop() {
-    getDeviceManager().stop();
-  }
+  void stop();
 
   @Override
   default void publish(Object message) {
@@ -73,11 +70,11 @@ public interface ProxyDeviceHostProvider extends ManagerHost, ManagerLog {
     }
   }
 
-  @Override
   default void update(Object update) {
-    String simpleName = update.getClass().getSimpleName();
-    warn(format("Ignoring proxy device %s update for %s", getDeviceId(), simpleName));
+    updateStateHolder(getDeviceState(), update);
+    getStateDirty().set(true);
   }
+
 
   @Override
   default FamilyProvider getLocalnetProvider(String family) {
@@ -89,5 +86,10 @@ public interface ProxyDeviceHostProvider extends ManagerHost, ManagerLog {
   }
 
   void error(String message);
+
+
+  AtomicBoolean getStateDirty();
+
+  State getDeviceState();
 
 }

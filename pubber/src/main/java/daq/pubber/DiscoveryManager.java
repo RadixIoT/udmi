@@ -1,37 +1,36 @@
 package daq.pubber;
 
+import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.JsonUtil.isoConvert;
-import static daq.pubber.Pubber.DEVICE_START_TIME;
+import static daq.pubber.client.PubberHostProvider.DEVICE_START_TIME;
 import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
+import static java.util.stream.Collectors.toMap;
 import static udmi.schema.FamilyDiscoveryState.Phase.ACTIVE;
 import static udmi.schema.FamilyDiscoveryState.Phase.DONE;
 
 import com.google.udmi.util.SiteModel;
 import daq.pubber.client.DiscoveryManagerProvider;
-import daq.pubber.client.ManagerProvider;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 import udmi.schema.Depths;
 import udmi.schema.DiscoveryConfig;
 import udmi.schema.DiscoveryEvents;
 import udmi.schema.DiscoveryState;
 import udmi.schema.FamilyDiscoveryState;
-import udmi.schema.PointDiscovery;
 import udmi.schema.PointPointsetModel;
 import udmi.schema.PubberConfiguration;
+import udmi.schema.RefDiscovery;
 import udmi.schema.SystemDiscoveryData;
 
 /**
  * Manager wrapper for discovery functionality in pubber.
  */
-public class DiscoveryManager extends ManagerBase implements DiscoveryManagerProvider,
-    ManagerProvider {
+public class DiscoveryManager extends ManagerBase implements DiscoveryManagerProvider {
 
   public static final int SCAN_DURATION_SEC = 10;
 
@@ -44,6 +43,20 @@ public class DiscoveryManager extends ManagerBase implements DiscoveryManagerPro
       DeviceManager deviceManager) {
     super(host, configuration);
     this.deviceManager = deviceManager;
+  }
+
+  static String getVendorRefKey(Map.Entry<String, PointPointsetModel> entry) {
+    return ofNullable(entry.getValue().ref).orElse(entry.getKey());
+  }
+
+  static RefDiscovery getVendorRefValue(Map.Entry<String, PointPointsetModel> entry) {
+    RefDiscovery refDiscovery = new RefDiscovery();
+    refDiscovery.possible_values = null;
+    PointPointsetModel model = entry.getValue();
+    refDiscovery.writable = model.writable;
+    refDiscovery.units = model.units;
+    refDiscovery.point = ifNotNullGet(model.ref, entry::getKey);
+    return refDiscovery;
   }
 
   /**
@@ -66,14 +79,10 @@ public class DiscoveryManager extends ManagerBase implements DiscoveryManagerPro
     DiscoveryEvents discoveryEvent = new DiscoveryEvents();
     discoveryEvent.generation = enumerationGeneration;
     Depths depths = config.depths;
-    discoveryEvent.points = maybeEnumerate(depths.points, () -> enumeratePoints(getDeviceId()));
+    discoveryEvent.refs = maybeEnumerate(depths.refs, () -> enumerateRefs(deviceId));
     discoveryEvent.features = maybeEnumerate(depths.features, SupportedFeatures::getFeatures);
     discoveryEvent.families = maybeEnumerate(depths.families, deviceManager::enumerateFamilies);
     host.publish(discoveryEvent);
-  }
-
-  public void updateState() {
-    updateState(ofNullable((Object) getDiscoveryState()).orElse(DiscoveryState.class));
   }
 
   /**
@@ -131,24 +140,9 @@ public class DiscoveryManager extends ManagerBase implements DiscoveryManagerPro
     return DEVICE_START_TIME;
   }
 
-  private Map<String, PointDiscovery> enumeratePoints(String deviceId) {
-    return siteModel.getMetadata(deviceId).pointset.points.entrySet().stream().collect(
-        Collectors.toMap(this::getPointUniqKey, this::getPointDiscovery));
-  }
-
-  private String getPointUniqKey(Map.Entry<String, PointPointsetModel> entry) {
-    return format("%08x", entry.getKey().hashCode());
-  }
-
-  private PointDiscovery getPointDiscovery(
-      Map.Entry<String, PointPointsetModel> entry) {
-    PointDiscovery pointDiscovery = new PointDiscovery();
-    PointPointsetModel model = entry.getValue();
-    pointDiscovery.writable = model.writable;
-    pointDiscovery.units = model.units;
-    pointDiscovery.ref = model.ref;
-    pointDiscovery.name = entry.getKey();
-    return pointDiscovery;
+  private Map<String, RefDiscovery> enumerateRefs(String deviceId) {
+    return siteModel.getMetadata(deviceId).pointset.points.entrySet().stream()
+        .collect(toMap(DiscoveryManager::getVendorRefKey, DiscoveryManager::getVendorRefValue));
   }
 
   /**

@@ -7,10 +7,11 @@ import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.GeneralUtils.isTrue;
 import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
+import static java.util.function.Predicate.not;
 
 import com.google.udmi.util.SiteModel;
 import daq.pubber.ManagerHost;
-import daq.pubber.ProxyDevice;
+import daq.pubber.ProtocolFamily;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,16 +55,12 @@ public interface GatewayManagerProvider extends ManagerProvider {
     }
 
     Map<String, ProxyDeviceHostProvider> devices = new HashMap<>();
-    if (!proxyIds.isEmpty()) {
-      String firstId = proxyIds.stream().sorted().findFirst().orElseThrow();
-      String noProxyId = ifTrueGet(isTrue(getOptions().noProxy), () -> firstId);
-      ifNotNullThen(noProxyId, id -> warn(format("Not proxying device %s", noProxyId)));
-      proxyIds.forEach(id -> {
-        if (!id.equals(noProxyId)) {
-          devices.put(id, createProxyDevice(getHost(), id, getConfig()));
-        }
-      });
-    }
+
+    String firstId = proxyIds.stream().sorted().findFirst().orElse(null);
+    String noProxyId = ifTrueGet(isTrue(getOptions().noProxy), () -> firstId);
+    ifNotNullThen(noProxyId, id -> warn(format("Not proxying device %s", noProxyId)));
+    proxyIds.stream().filter(not(id -> id.equals(noProxyId)))
+        .forEach(id -> devices.put(id, createProxyDevice(getHost(), id, getConfig())));
 
     ifTrueThen(getOptions().extraDevice, () -> devices.put(EXTRA_PROXY_DEVICE, makeExtraDevice()));
 
@@ -114,19 +111,18 @@ public interface GatewayManagerProvider extends ManagerProvider {
 
   /**
    * Validates the given gateway family.
-   *
-   * @param family The gateway family to validate.
-   * @return The validated family if successful; otherwise, null.
-   * @throws NullPointerException If the address for the specified family is null or undefined.
    */
-  default String validateGatewayFamily(String family) {
-    if (family == null) {
-      return null;
+  default void validateGatewayFamily(String family, String addr) {
+    if (!ProtocolFamily.FAMILIES.contains(family)) {
+      throw new IllegalArgumentException("Unrecognized address family " + family);
     }
-    debug("Validating gateway family " + family);
-    Objects.requireNonNull(catchToNull(() -> getMetadata().localnet.families.get(family).addr),
-        format("Address family %s addr is null or undefined", family));
-    return family;
+
+    String expectedAddr = catchToNull(() -> getMetadata().localnet.families.get(family).addr);
+
+    if (expectedAddr != null && !expectedAddr.equals(addr)) {
+      throw new IllegalStateException(
+          format("Family address was %s, expected %s", addr, expectedAddr));
+    }
   }
 
   /**

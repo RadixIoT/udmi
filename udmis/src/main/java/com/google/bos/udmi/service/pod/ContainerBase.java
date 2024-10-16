@@ -52,8 +52,8 @@ import udmi.schema.PodConfiguration;
 public abstract class ContainerBase implements UdmiComponent {
 
   public static final String INITIAL_EXECUTION_CONTEXT = "xxxxxxxx";
-  public static final Integer FUNCTIONS_VERSION_MIN = 13;
-  public static final Integer FUNCTIONS_VERSION_MAX = 14;
+  public static final Integer FUNCTIONS_VERSION_MIN = 15;
+  public static final Integer FUNCTIONS_VERSION_MAX = 15;
   public static final String EMPTY_JSON = "{}";
   public static final String REFLECT_BASE = "UDMI-REFLECT";
   private static final ThreadLocal<String> executionContext = new ThreadLocal<>();
@@ -308,7 +308,7 @@ public abstract class ContainerBase implements UdmiComponent {
   @Override
   public void output(Level level, String message) {
     PrintStream printStream = level.value() >= Level.WARNING.value() ? System.err : System.out;
-    printStream.printf("%s %s %s: %s %s%n", JsonUtil.isoConvert(), getExecutionContext(),
+    printStream.printf("%s %s %s: %s %s%n", JsonUtil.currentIsoMs(), getExecutionContext(),
         level.name().charAt(0), getSimpleName(), message);
     printStream.flush();
   }

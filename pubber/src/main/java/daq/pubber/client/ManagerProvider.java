@@ -3,6 +3,7 @@ package daq.pubber.client;
 import daq.pubber.ManagerHost;
 import daq.pubber.ManagerLog;
 import java.util.Date;
+import java.util.concurrent.ScheduledFuture;
 import udmi.schema.PubberConfiguration;
 import udmi.schema.PubberOptions;
 
@@ -14,7 +15,7 @@ public interface ManagerProvider extends ManagerLog {
 
   void updateState(Object state);
 
-  void scheduleFuture(Date futureTime, Runnable futureTask);
+  ScheduledFuture<?> scheduleFuture(Date futureTime, Runnable futureTask);
 
   void error(String message);
 

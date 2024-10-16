@@ -6,6 +6,7 @@ import static com.google.udmi.util.GeneralUtils.getTimestamp;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotTrueGet;
 import static com.google.udmi.util.GeneralUtils.ifNotTrueThen;
+import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.GeneralUtils.isTrue;
 import static com.google.udmi.util.JsonUtil.isoConvert;
 import static com.google.udmi.util.JsonUtil.stringify;
@@ -41,13 +42,14 @@ import udmi.schema.SystemState;
  */
 public interface SystemManagerProvider extends ManagerProvider {
 
+  String PUBBER_LOG_CATEGORY = "device.log";
+
+  long BYTES_PER_MEGABYTE = 1024 * 1024;
   String DEFAULT_MAKE = "bos";
   String DEFAULT_MODEL = "pubber";
   String DEFAULT_SOFTWARE_KEY = "firmware";
   String DEFAULT_SOFTWARE_VALUE = "v1";
-  String PUBBER_LOG_CATEGORY = "device.log";
 
-  long BYTES_PER_MEGABYTE = 1024 * 1024;
   Map<SystemMode, Integer> EXIT_CODE_MAP = ImmutableMap.of(
       SystemMode.SHUTDOWN, 0, // Indicates expected clean shutdown (success).
       SystemMode.RESTART, 192, // Indicate process to be explicitly restarted.
@@ -64,6 +66,7 @@ public interface SystemManagerProvider extends ManagerProvider {
           .put(Level.WARNING, LOG::warn)
           .put(Level.ERROR, LOG::error)
           .build();
+
   List<Entry> getLogentries();
 
   boolean getPublishingLog();
@@ -81,8 +84,6 @@ public interface SystemManagerProvider extends ManagerProvider {
 
   /**
    * Local log.
-   *
-   * @param entry Log entry.
    */
   default void localLog(Entry entry) {
     String message = format("Log %s%s %s %s %s%s", Level.fromValue(entry.level).name(),
@@ -94,7 +95,6 @@ public interface SystemManagerProvider extends ManagerProvider {
   /**
    * Retrieves the hardware and software from metadata.
    *
-   * @param metadata the input metadata.
    */
   default void setHardwareSoftware(Metadata metadata) {
 
@@ -202,8 +202,6 @@ public interface SystemManagerProvider extends ManagerProvider {
   /**
    * Updates the system configuration with a new SystemConfig object and timestamps.
    *
-   * @param system The new SystemConfig object to be set.
-   * @param timestamp The timestamp associated with the new configuration.
    */
   default void updateConfig(SystemConfig system, Date timestamp) {
     Integer oldBase = catchToNull(() -> getSystemConfig().testing.config_base);
@@ -225,19 +223,16 @@ public interface SystemManagerProvider extends ManagerProvider {
   /**
    * Publish log message.
    *
-   * @param report report.
    */
   default void publishLogMessage(Entry report) {
     if (shouldLogLevel(report.level)) {
+      ifTrueThen(getOptions().badLevel, () -> report.level = 0);
       getLogentries().add(report);
     }
   }
 
   /**
    * Check if we should log at the level provided.
-   *
-   * @param level the level.
-   * @return true if we can log at the level provided.
    */
   default boolean shouldLogLevel(int level) {
     if (getOptions().fixedLogLevel != null) {
@@ -252,9 +247,6 @@ public interface SystemManagerProvider extends ManagerProvider {
    * Logs a message with specified level and detail. If publishing is enabled,
    * it will publish the log message using the `pubberLogMessage` method.
    *
-   * @param message The log message to be logged.
-   * @param level   The severity level of the log message (e.g., Level.INFO, Level.ERROR).
-   * @param detail  Additional details for the log message.
    */
   default void cloudLog(String message, Level level, String detail) {
     String timestamp = getTimestamp();
@@ -278,8 +270,6 @@ public interface SystemManagerProvider extends ManagerProvider {
 
   /**
    * Get a testing tag.
-
-   * @return Tag string.
    */
   default String getTestingTag() {
     SystemConfig config = getSystemConfig();
@@ -301,6 +291,14 @@ public interface SystemManagerProvider extends ManagerProvider {
     publishLogMessage(logEntry);
   }
 
+  /**
+   * Extra system state with extra field.
+   */
+  class ExtraSystemState extends SystemState {
+
+    public String extraField;
+  }
+
   void stop();
 
   void shutdown();
@@ -309,11 +307,4 @@ public interface SystemManagerProvider extends ManagerProvider {
 
   PubberOptions getOptions();
 
-  /**
-   * Extra system state with extra field.
-   */
-  class ExtraSystemState extends SystemState {
-
-    public String extraField;
-  }
 }

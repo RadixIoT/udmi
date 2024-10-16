@@ -24,6 +24,7 @@ public abstract class MessagePipeTestBase extends MessageTestBase {
 
   private static final long RECEIVE_TIMEOUT_MS = 1000;
   private static final String EXCEPTION_PAYLOAD = "";
+  private static final String EXCEPTION_MESSAGE = "Exception expected for test";
   public static final String REFLECT_REGISTRY = "UDMI-REFLECT";
   public static boolean useReflectRegistry;
 
@@ -33,16 +34,16 @@ public abstract class MessagePipeTestBase extends MessageTestBase {
   @NotNull
   public static MessageDispatcherImpl getDispatcherFor(EndpointConfiguration reversedTarget) {
     MessageDispatcherImpl from = (MessageDispatcherImpl) MessageDispatcher.from(reversedTarget);
-    from.setThreadEnvelope(makeTestEnvelope());
+    from.setThreadEnvelope(makeTestEnvelope(false));
     return from;
   }
 
   /**
    * Make a message envelope suitable for testing.
    */
-  public static Envelope makeTestEnvelope() {
+  public static Envelope makeTestEnvelope(boolean includeProject) {
     Envelope envelope = new Envelope();
-    envelope.projectId = TEST_NAMESPACE;
+    envelope.projectId = includeProject ? TEST_NAMESPACE : null;
     if (useReflectRegistry) {
       envelope.deviceId = TEST_REGISTRY;
       envelope.deviceRegistryId = REFLECT_REGISTRY;
@@ -102,6 +103,7 @@ public abstract class MessagePipeTestBase extends MessageTestBase {
     bundle.envelope.subType = SubType.EVENTS;
     bundle.envelope.subFolder = SubFolder.ERROR;
     bundle.payload = EXCEPTION_PAYLOAD;
+    bundle.message = EXCEPTION_MESSAGE;
     return bundle;
   }
 

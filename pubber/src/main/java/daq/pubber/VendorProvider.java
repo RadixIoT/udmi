@@ -1,6 +1,7 @@
 package daq.pubber;
 
 import static com.google.udmi.util.GeneralUtils.catchToNull;
+import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifTrueGet;
 import static daq.pubber.ProtocolFamily.VENDOR;
@@ -15,9 +16,8 @@ import java.util.function.BiConsumer;
 import udmi.schema.DiscoveryEvents;
 import udmi.schema.FamilyLocalnetState;
 import udmi.schema.Metadata;
-import udmi.schema.PointDiscovery;
-import udmi.schema.PointPointsetModel;
 import udmi.schema.PubberConfiguration;
+import udmi.schema.RefDiscovery;
 
 /**
  * Basic provider for the Vendor protocol family.
@@ -38,17 +38,13 @@ public class VendorProvider extends ManagerBase implements FamilyProvider {
     String addr = catchToNull(() -> entry.getValue().localnet.families.get(VENDOR).addr);
     DiscoveryEvents event = new DiscoveryEvents();
     event.scan_addr = addr;
-    event.points = ifTrueGet(enumerate, () -> getDiscoverPoints(entry.getValue()));
+    event.refs = ifTrueGet(enumerate, () -> getDiscoveredRefs(entry.getValue()));
     return event;
   }
 
-  private Map<String, PointDiscovery> getDiscoverPoints(Metadata entry) {
+  private Map<String, RefDiscovery> getDiscoveredRefs(Metadata entry) {
     return entry.pointset.points.entrySet().stream()
-        .collect(toMap(Entry::getKey, this::makePointDiscovery));
-  }
-
-  private PointDiscovery makePointDiscovery(Entry<String, PointPointsetModel> entry) {
-    return new PointDiscovery();
+        .collect(toMap(DiscoveryManager::getVendorRefKey, DiscoveryManager::getVendorRefValue));
   }
 
   private void updateStateAddress() {

@@ -73,6 +73,12 @@
     "noState": {
       "type": "boolean"
     },
+    "noFolder": {
+      "type": "boolean"
+    },
+    "badLevel": {
+      "type": "boolean"
+    },
     "spamState": {
       "type": "boolean"
     },
@@ -80,6 +86,9 @@
       "type": "boolean"
     },
     "badState": {
+      "type": "boolean"
+    },
+    "baseState": {
       "type": "boolean"
     },
     "dupeState": {

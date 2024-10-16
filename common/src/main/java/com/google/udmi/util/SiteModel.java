@@ -27,13 +27,11 @@ import static java.util.Optional.ofNullable;
 import static java.util.stream.Collectors.toMap;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.util.ISO8601DateFormat;
 import com.google.common.collect.ImmutableList;
-
 import com.google.daq.mqtt.util.ExceptionMap;
 import java.io.File;
 import java.util.Arrays;
@@ -71,8 +69,8 @@ public class SiteModel {
   public static final String DEVICES_DIR = "devices";
   public static final String REFLECTOR_DIR = "reflector";
   public static final String METADATA_JSON = "metadata.json";
-  public static final String EXTRA_DEVICES_BASE = "extras";
-  public static final String EXTRA_DEVICES_FORMAT = EXTRA_DEVICES_BASE + "/%s";
+  public static final String EXTRAS_DIR = "extras";
+  public static final String EXTRA_DEVICES_FORMAT = EXTRAS_DIR + "/%s";
   public static final String NORMALIZED_JSON = "metadata_norm.json";
   public static final String SITE_DEFAULTS_FILE = "site_defaults.json";
   public static final String REGISTRATION_SUMMARY_BASE = "out/registration_summary";
@@ -89,13 +87,13 @@ public class SiteModel {
   private static final Pattern IOT_CORE_PATTERN = Pattern.compile(
       "projects/(.*)/locations/(.*)/registries/(.*)/devices/(.*)");
   private static final Pattern MQTT_PATTERN = Pattern.compile("/r/(.*)/d/(.*)");
-  private static final String EXTRAS_DIR = "extras";
   private static final String CLOUD_IOT_CONFIG_JSON = "cloud_iot_config.json";
   private static final Pattern SPEC_PATTERN = Pattern.compile(
-      "(//([a-z]+)/)?([a-z-]+)(/([a-z0-9]+))?");
+      "(//([a-z]+)/)?(([a-z-]+))(/([a-z0-9]+))?(\\+([a-z0-9-]+))?");
   private static final int SPEC_PROVIDER_GROUP = 2;
-  private static final int SPEC_PROJECT_GROUP = 3;
-  private static final int SPEC_NAMESPACE_GROUP = 5;
+  private static final int SPEC_PROJECT_GROUP = SPEC_PROVIDER_GROUP + 2;
+  private static final int SPEC_NAMESPACE_GROUP = SPEC_PROJECT_GROUP + 2;
+  private static final int SPEC_USER_GROUP = SPEC_NAMESPACE_GROUP + 2;
   private static final File CONFIG_OUT_DIR = new File("out/");
   private static final String RSA_PRIVATE_KEY = "rsa_private.pkcs8";
   private static final String EC_PRIVATE_KEY = "ec_private.pkcs8";
@@ -186,6 +184,7 @@ public class SiteModel {
           DEFAULT_CLEARBLADE_HOSTNAME);
       case GBOS -> DEFAULT_GBOS_HOSTNAME;
       case IMPLICIT, DYNAMIC -> LOCALHOST_HOSTNAME;
+      case MQTT -> requireNonNull(executionConfig.project_id, "missing project_id as hostname");
       default -> throw new RuntimeException("Unsupported iot_provider " + iotProvider);
     };
   }
@@ -281,6 +280,7 @@ public class SiteModel {
       exeConfig.iot_provider = ifNotNullGet(iotProvider, IotProvider::fromValue);
       String matchedId = specMatcher.group(SPEC_PROJECT_GROUP);
       exeConfig.project_id = NO_SITE.equals(matchedId) ? null : matchedId;
+      exeConfig.user_name = specMatcher.group(SPEC_USER_GROUP);
       exeConfig.udmi_namespace = specMatcher.group(SPEC_NAMESPACE_GROUP);
     } catch (Exception e) {
       throw new RuntimeException(
@@ -301,7 +301,7 @@ public class SiteModel {
 
   public Set<String> getDeviceIds() {
     checkState(sitePath != null, "sitePath not defined");
-    File devicesFile = new File(new File(sitePath), "devices");
+    File devicesFile = getDevicesDir();
     File[] files = Objects.requireNonNull(devicesFile.listFiles(),
         "no files in " + devicesFile.getAbsolutePath());
     return Arrays.stream(files).map(File::getName).filter(SiteModel::validDeviceDirectory)
@@ -318,12 +318,8 @@ public class SiteModel {
        return convertToStrict(SiteMetadata.class, siteMetadataObject);
     } catch (Exception e) {
       siteMetadataExceptionMap.put(SITE_METADATA_KEY, e);
-      if (e instanceof JsonMappingException) {
-        return convertTo(SiteMetadata.class, siteMetadataObject);
-      }
+      return convertTo(SiteMetadata.class, siteMetadataObject);
     }
-
-    return null;
   }
 
   public Metadata loadDeviceMetadata(String deviceId, boolean safeLoading, boolean upgradeMetadata){
@@ -393,7 +389,11 @@ public class SiteModel {
   }
 
   public File getDeviceDir(String deviceId) {
-    return new File(new File(new File(sitePath), "devices"), deviceId);
+    return new File(getDevicesDir(), deviceId);
+  }
+
+  public File getDevicesDir() {
+    return new File(new File(sitePath), "devices");
   }
 
   public File getDeviceFile(String deviceId, String path) {

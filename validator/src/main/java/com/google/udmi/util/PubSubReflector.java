@@ -1,16 +1,24 @@
 package com.google.udmi.util;
 
 import static com.google.api.client.util.Preconditions.checkNotNull;
-import static com.google.bos.iot.core.proxy.IotReflectorClient.UDMI_REFLECT;
 import static com.google.bos.iot.core.proxy.ProxyTarget.STATE_TOPIC;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.udmi.util.Common.CATEGORY_PROPERTY_KEY;
 import static com.google.udmi.util.Common.DEVICE_ID_KEY;
 import static com.google.udmi.util.Common.PUBLISH_TIME_KEY;
+import static com.google.udmi.util.Common.REGISTRY_ID_PROPERTY_KEY;
+import static com.google.udmi.util.Common.SOURCE_KEY;
+import static com.google.udmi.util.Common.SOURCE_SEPARATOR;
+import static com.google.udmi.util.Common.SOURCE_SEPARATOR_REGEX;
 import static com.google.udmi.util.Common.SUBFOLDER_PROPERTY_KEY;
 import static com.google.udmi.util.Common.getNamespacePrefix;
+import static com.google.udmi.util.GeneralUtils.friendlyStackTrace;
+import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
+import static com.google.udmi.util.GeneralUtils.ifNullThen;
 import static com.google.udmi.util.JsonUtil.isoConvert;
 import static com.google.udmi.util.JsonUtil.stringify;
 import static com.google.udmi.util.JsonUtil.toStringMap;
+import static com.google.udmi.util.SiteModel.DEFAULT_GBOS_HOSTNAME;
 import static java.lang.String.format;
 import static java.time.Instant.ofEpochSecond;
 import static java.util.Objects.requireNonNull;
@@ -41,7 +49,9 @@ import com.google.pubsub.v1.SeekRequest;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import org.jetbrains.annotations.Nullable;
@@ -57,16 +67,25 @@ public class PubSubReflector implements MessagePublisher {
 
   private static final String CONNECT_ERROR_FORMAT = "While connecting to project %s";
 
-  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
-      .enable(SerializationFeature.INDENT_OUTPUT)
-      .setSerializationInclusion(Include.NON_NULL);
+  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().enable(
+      SerializationFeature.INDENT_OUTPUT).setSerializationInclusion(Include.NON_NULL);
   private static final String SUBSCRIPTION_ERROR_FORMAT = "While accessing subscription %s";
 
   private static final long SUBSCRIPTION_RACE_DELAY_MS = 10000;
   private static final String WAS_BASE_64 = "wasBase64";
-  public static final String UDMI_REFLECT_TOPIC = "udmi_reflect";
+  private static final String UDMI_REFLECT_TOPIC = "udmi_reflect";
   private static final String UDMI_REPLY_TOPIC = "udmi_reply";
+  public static final String USER_NAME_DEFAULT = "debug";
+  private static final AtomicInteger sessionCount = new AtomicInteger();
+  private static String subscriptionId;
+  private static PubSubReflector reflectorClient;
+  private static final Map<String, BiConsumer<String, String>> messageHandlers
+      = new ConcurrentHashMap<>();
+  private static final Map<String, Consumer<Throwable>> errorHandlers = new ConcurrentHashMap<>();
+  private static BiConsumer<String, String> defaultMessageHandler;
+  private static Consumer<Throwable> defaultErrorHandler;
 
+  private final AtomicBoolean activated = new AtomicBoolean();
   private final AtomicBoolean active = new AtomicBoolean();
   private final long startTimeSec = System.currentTimeMillis() / 1000;
 
@@ -76,8 +95,7 @@ public class PubSubReflector implements MessagePublisher {
   private final Subscriber subscriber;
   private final Publisher publisher;
   private final boolean flushSubscription;
-  private BiConsumer<String, String> messageHandler;
-  private Consumer<Throwable> errorHandler;
+  private final String userName;
 
   /**
    * Create a new PubSub client.
@@ -85,11 +103,12 @@ public class PubSubReflector implements MessagePublisher {
    * @param projectId      target project id
    * @param registryId     target registry id
    * @param updateTopic    output PubSub topic for updates (else null)
+   * @param userName       user id running this operation
    * @param subscriptionId target subscription name
    */
-  public PubSubReflector(String projectId, String registryId, String updateTopic,
+  public PubSubReflector(String projectId, String registryId, String updateTopic, String userName,
       String subscriptionId) {
-    this(projectId, registryId, updateTopic, subscriptionId, true);
+    this(projectId, registryId, updateTopic, userName, subscriptionId, true);
   }
 
   /**
@@ -98,13 +117,14 @@ public class PubSubReflector implements MessagePublisher {
    * @param projectId      target project id
    * @param registryId     target registry id
    * @param updateTopic    output PubSub topic for updates (else null)
+   * @param userName       user id running this operation
    * @param subscriptionId target subscription name
    * @param reset          if the connection should be reset before use
    */
-  public PubSubReflector(String projectId, String registryId, String updateTopic,
-      String subscriptionId,
-      boolean reset) {
+  public PubSubReflector(String projectId, String registryId, String updateTopic, String userName,
+      String subscriptionId, boolean reset) {
     try {
+      checkState(sessionCount.incrementAndGet() == 1, "multiple internal sessions not supported");
       this.projectId = checkNotNull(projectId, "project id not defined");
       this.registryId = registryId;
       ProjectSubscriptionName subscriptionName = ProjectSubscriptionName.of(projectId,
@@ -114,6 +134,7 @@ public class PubSubReflector implements MessagePublisher {
         resetSubscription(subscriptionName);
       }
       subscriber = Subscriber.newBuilder(subscriptionName, new MessageProcessor()).build();
+      this.userName = userName;
 
       if (updateTopic != null) {
         ProjectTopicName topicName = ProjectTopicName.of(projectId, updateTopic);
@@ -136,30 +157,42 @@ public class PubSubReflector implements MessagePublisher {
    */
   public static MessagePublisher from(ExecutionConfiguration iotConfig,
       BiConsumer<String, String> messageHandler, Consumer<Throwable> errorHandler) {
-    String projectId = requireNonNull(iotConfig.project_id, "missing project id");
     String registryActual = SiteModel.getRegistryActual(iotConfig);
-    ExecutionConfiguration reflectorConfig = IotReflectorClient.makeReflectConfiguration(iotConfig,
-        registryActual);
-    String registryId = MessagePublisher.getRegistryId(reflectorConfig);
     String namespacePrefix = getNamespacePrefix(iotConfig.udmi_namespace);
-    String topicId = namespacePrefix + UDMI_REFLECT_TOPIC;
-    String bridgeHost = requireNonNull(iotConfig.bridge_host, "missing bridge_host");
-    String subscriptionId = namespacePrefix + UDMI_REPLY_TOPIC + "-" + bridgeHost;
+    String userName = ofNullable(iotConfig.user_name).orElse(USER_NAME_DEFAULT);
+    String newId = namespacePrefix + UDMI_REPLY_TOPIC + SOURCE_SEPARATOR + userName;
+    checkState(subscriptionId == null || subscriptionId.equals(newId),
+        "unsupported difference in subscription id");
+    subscriptionId = newId;
+    checkState(messageHandlers.put(registryActual, messageHandler) == null, "duplicate handler");
+    checkState(errorHandlers.put(registryActual, errorHandler) == null, "duplicate handler");
 
-    PubSubReflector reflector = new PubSubReflector(projectId, registryId, topicId, subscriptionId);
-    reflector.activate(messageHandler, errorHandler);
-    return reflector;
+    ifNullThen(reflectorClient, () -> {
+      defaultMessageHandler = messageHandler;
+      defaultErrorHandler = errorHandler;
+      ExecutionConfiguration reflectorConfig = IotReflectorClient.makeReflectConfiguration(
+          iotConfig, registryActual);
+      String registryId = MessagePublisher.getRegistryId(reflectorConfig);
+      String projectId = requireNonNull(iotConfig.project_id, "missing project id");
+      String topicId = namespacePrefix + UDMI_REFLECT_TOPIC;
+      reflectorClient = new PubSubReflector(projectId, registryId, topicId, userName,
+          subscriptionId);
+    });
+
+    return reflectorClient;
   }
 
-  private void activate(BiConsumer<String, String> messageHandler,
-      Consumer<Throwable> errorHandler) {
-    this.messageHandler = messageHandler;
-    this.errorHandler = errorHandler;
-    subscriber.startAsync().awaitRunning();
-    active.set(true);
+  /**
+   * Activate this instance if it hasn't already been activated.
+   */
+  public void activate() {
+    if (!activated.getAndSet(true)) {
+      subscriber.startAsync().awaitRunning();
+      active.set(true);
 
-    // TODO: Make this trigger both the config & state to be queried.
-    // publish(UDMI_REFLECT, UPDATE_QUERY_TOPIC, EMPTY_JSON);
+      // TODO: Make this trigger both the config & state to be queried.
+      // publish(UDMI_REFLECT, UPDATE_QUERY_TOPIC, EMPTY_JSON);
+    }
   }
 
   private SeekRequest getCurrentTimeSeekRequest(String subscription) {
@@ -186,8 +219,7 @@ public class PubSubReflector implements MessagePublisher {
   private MessageBundle processMessage(PubsubMessage message) {
     long seconds = message.getPublishTime().getSeconds();
     if (flushSubscription && seconds < startTimeSec) {
-      System.err.printf("Flushing outdated message from %d seconds ago%n",
-          startTimeSec - seconds);
+      System.err.printf("Flushing outdated message from %d seconds ago%n", startTimeSec - seconds);
       return null;
     }
     byte[] rawData = message.getData().toByteArray();
@@ -200,8 +232,8 @@ public class PubSubReflector implements MessagePublisher {
     }
     Map<String, Object> asMap;
     try {
-      @SuppressWarnings("unchecked")
-      Map<String, Object> dataMap = OBJECT_MAPPER.readValue(data, TreeMap.class);
+      @SuppressWarnings("unchecked") Map<String, Object> dataMap = OBJECT_MAPPER.readValue(data,
+          TreeMap.class);
       asMap = dataMap;
     } catch (JsonProcessingException e) {
       asMap = new ErrorContainer(e, getSubscriptionId(), GeneralUtils.getTimestamp());
@@ -232,13 +264,11 @@ public class PubSubReflector implements MessagePublisher {
       envelope.deviceId = deviceId;
       envelope.deviceRegistryId = registryId;
       envelope.projectId = projectId;
-      envelope.source = UDMI_REFLECT;
+      envelope.source = Common.SOURCE_SEPARATOR + userName;
       envelope.subFolder = STATE_TOPIC.equals(topic) ? null : SubFolder.UDMI;
       Map<String, String> map = toStringMap(envelope);
-      PubsubMessage message = PubsubMessage.newBuilder()
-          .setData(ByteString.copyFromUtf8(data))
-          .putAllAttributes(map)
-          .build();
+      PubsubMessage message = PubsubMessage.newBuilder().setData(ByteString.copyFromUtf8(data))
+          .putAllAttributes(map).build();
       ApiFuture<String> publish = publisher.publish(message);
       publish.get(); // Wait for publish to complete.
     } catch (Exception e) {
@@ -258,8 +288,7 @@ public class PubSubReflector implements MessagePublisher {
         publisher.publishAllOutstanding();
         publisher.shutdown();
       } catch (Exception e) {
-        System.err.println("Error shutting down publisher");
-        e.printStackTrace();
+        System.err.println("Error shutting down publisher: " + friendlyStackTrace(e));
       }
     }
   }
@@ -276,8 +305,7 @@ public class PubSubReflector implements MessagePublisher {
     } catch (NotFoundException e) {
       throw new RuntimeException("Missing subscription for " + subscriptionName);
     } catch (Exception e) {
-      throw new RuntimeException(
-          format(SUBSCRIPTION_ERROR_FORMAT, subscriptionName), e);
+      throw new RuntimeException(format(SUBSCRIPTION_ERROR_FORMAT, subscriptionName), e);
     }
   }
 
@@ -288,22 +316,56 @@ public class PubSubReflector implements MessagePublisher {
     return setupUdmiConfig;
   }
 
+  @Override
+  public String getBridgeHost() {
+    // TODO: Figure out how to properly determine the endpoint connection host.
+    return DEFAULT_GBOS_HOSTNAME;
+  }
+
   private class MessageProcessor implements MessageReceiver {
 
     @Override
     public void receiveMessage(PubsubMessage message, AckReplyConsumer consumer) {
+      final MessageBundle messageBundle;
+      String deviceRegistryId;
       try {
         consumer.ack();
-        MessageBundle messageBundle = processMessage(message);
+        messageBundle = processMessage(message);
+        if (messageBundle == null) {
+          return;
+        }
+        // Since this is a reflector, pull the registry id from the device id field.
+        deviceRegistryId = requireNonNull(messageBundle.attributes.get(DEVICE_ID_KEY));
+      } catch (Exception e) {
+        defaultErrorHandler.accept(e);
+        return;
+      }
+
+      try {
         Map<String, String> attributes = messageBundle.attributes;
         String subFolder = attributes.get(SUBFOLDER_PROPERTY_KEY);
         String suffix = ofNullable(subFolder).map(folder -> "/" + folder).orElse("");
         String topic = format("/devices/%s/%s%s", attributes.get(DEVICE_ID_KEY),
-            attributes.get(CATEGORY_PROPERTY_KEY),
-            suffix);
-        messageHandler.accept(topic, stringify(messageBundle.message));
+            attributes.get(CATEGORY_PROPERTY_KEY), suffix);
+        String messageSource = attributes.remove(SOURCE_KEY);
+        if (messageSource == null) {
+          return;
+        }
+
+        Object dstSource = messageBundle.message.remove(SOURCE_KEY);
+        String[] source = messageSource.split(SOURCE_SEPARATOR_REGEX, 3);
+        if (source.length == 1) {
+          attributes.put(SOURCE_KEY, source[0]);
+        } else if (source.length == 2 && source[0].isEmpty()) {
+          topic += messageSource;
+          ifNotNullThen(dstSource, () -> messageBundle.message.put(SOURCE_KEY, source[1]));
+        } else {
+          System.err.println("Discarding message with malformed source: " + messageSource);
+        }
+        ofNullable(messageHandlers.get(deviceRegistryId)).orElse(defaultMessageHandler)
+            .accept(topic, stringify(messageBundle.message));
       } catch (Exception e) {
-        errorHandler.accept(e);
+        ofNullable(errorHandlers.get(deviceRegistryId)).orElse(defaultErrorHandler).accept(e);
       }
     }
   }

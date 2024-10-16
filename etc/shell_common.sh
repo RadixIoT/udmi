@@ -7,8 +7,8 @@
 set -eu
 set -o pipefail
 
-# Force consistent sort order
-export LC_ALL=C
+# Force consistent sort order and other processing things
+export LC_ALL=en_US.UTF-8
 
 function search {
     egrep -q "$1" $2 || fail Could not find in $2: $1
@@ -26,6 +26,20 @@ function warn {
 function usage {
     echo usage: $0 $*
     false
+}
+
+function newest_file {
+    echo $(find ${1:-.} -type f -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f 2-)
+}
+
+function up_to_date {
+    target=$1
+    [[ ! -f $target ]] && return 1
+    newest=$(newest_file $2)
+    [[ $target -ot $newest ]] && return 1
+    common=$(newest_file $UDMI_ROOT/common/src)
+    [[ $target -ot $common ]] && return 1
+    return 0
 }
 
 PUBBER_LOG=out/pubber.log

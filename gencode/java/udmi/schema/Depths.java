@@ -3,7 +3,6 @@ package udmi.schema;
 
 import java.util.HashMap;
 import java.util.Map;
-import javax.annotation.processing.Generated;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -19,18 +18,17 @@ import com.fasterxml.jackson.annotation.JsonValue;
 @JsonPropertyOrder({
     "families",
     "devices",
-    "points",
+    "refs",
     "features"
 })
-@Generated("jsonschema2pojo")
 public class Depths {
 
     @JsonProperty("families")
     public Depths.Depth families;
     @JsonProperty("devices")
     public Depths.Depth devices;
-    @JsonProperty("points")
-    public Depths.Depth points;
+    @JsonProperty("refs")
+    public Depths.Depth refs;
     @JsonProperty("features")
     public Depths.Depth features;
 
@@ -40,7 +38,7 @@ public class Depths {
         result = ((result* 31)+((this.features == null)? 0 :this.features.hashCode()));
         result = ((result* 31)+((this.families == null)? 0 :this.families.hashCode()));
         result = ((result* 31)+((this.devices == null)? 0 :this.devices.hashCode()));
-        result = ((result* 31)+((this.points == null)? 0 :this.points.hashCode()));
+        result = ((result* 31)+((this.refs == null)? 0 :this.refs.hashCode()));
         return result;
     }
 
@@ -53,10 +51,9 @@ public class Depths {
             return false;
         }
         Depths rhs = ((Depths) other);
-        return (((((this.features == rhs.features)||((this.features!= null)&&this.features.equals(rhs.features)))&&((this.families == rhs.families)||((this.families!= null)&&this.families.equals(rhs.families))))&&((this.devices == rhs.devices)||((this.devices!= null)&&this.devices.equals(rhs.devices))))&&((this.points == rhs.points)||((this.points!= null)&&this.points.equals(rhs.points))));
+        return (((((this.features == rhs.features)||((this.features!= null)&&this.features.equals(rhs.features)))&&((this.families == rhs.families)||((this.families!= null)&&this.families.equals(rhs.families))))&&((this.devices == rhs.devices)||((this.devices!= null)&&this.devices.equals(rhs.devices))))&&((this.refs == rhs.refs)||((this.refs!= null)&&this.refs.equals(rhs.refs))));
     }
 
-    @Generated("jsonschema2pojo")
     public enum Depth {
 
         REGISTRIES("registries"),
