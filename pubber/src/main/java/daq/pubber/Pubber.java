@@ -732,11 +732,6 @@ public class Pubber extends ManagerBase implements PubberHostProvider {
   }
 
   @Override
-  public State getDeviceState() {
-    return deviceState;
-  }
-
-  @Override
   public Config getDeviceConfig() {
     return deviceConfig;
   }

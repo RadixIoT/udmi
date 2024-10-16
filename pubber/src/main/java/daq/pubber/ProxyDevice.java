@@ -68,10 +68,13 @@ public class ProxyDevice extends ManagerBase implements ProxyDeviceHostProvider 
   }
 
   @Override
-  public void publish(Object message) {
-    if (active.get()) {
-      pubberHost.publish(deviceId, message);
-    }
+  public void shutdown() {
+    deviceManager.shutdown();
+  }
+
+  @Override
+  public void stop() {
+    deviceManager.stop();
   }
 
   @Override
@@ -80,16 +83,10 @@ public class ProxyDevice extends ManagerBase implements ProxyDeviceHostProvider 
     stateDirty.set(true);
   }
 
-  // tomerge
   private void publishDirtyState() {
     if (stateDirty.getAndSet(false)) {
       pubberHost.publish(deviceId, deviceState);
     }
-  }
-
-  @Override
-  public FamilyProvider getLocalnetProvider(String family) {
-    return host.getLocalnetProvider(family);
   }
 
   @Override

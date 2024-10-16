@@ -93,7 +93,6 @@ public abstract class ManagerBase implements ManagerProvider {
 
   /**
    * Schedule a future for the futureTask parameter.
-   *
    */
   public ScheduledFuture<?> scheduleFuture(Date futureTime, Runnable futureTask) {
     if (executor.isShutdown() || executor.isTerminated()) {
@@ -137,11 +136,7 @@ public abstract class ManagerBase implements ManagerProvider {
   }
 
   /**
-   * Updates the interval for periodic updates based on the provided sample rate,
-   * ensuring it respects the minimum disabled interval.
-   *
-   * @param sampleRateSec The desired sample rate in seconds,
-   *                      or null to use the default report interval.
+   * Updates the interval for periodic updates based on the provided sample rate.
    */
   @Override
   public void updateInterval(Integer sampleRateSec) {
@@ -224,5 +219,9 @@ public abstract class ManagerBase implements ManagerProvider {
 
   public ManagerHost getHost() {
     return host;
+  }
+
+  public State getDeviceState() {
+    return deviceState;
   }
 }
