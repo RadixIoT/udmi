@@ -6,34 +6,22 @@ import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifNotTrueThen;
 import static com.google.udmi.util.GeneralUtils.ifNullThen;
-import static com.google.udmi.util.GeneralUtils.ifTrueGet;
-import static com.google.udmi.util.GeneralUtils.ifTrueThen;
-import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElseGet;
 import static java.util.Optional.ofNullable;
-import static udmi.schema.Category.POINTSET_POINT_INVALID;
-import static udmi.schema.Category.POINTSET_POINT_INVALID_VALUE;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import daq.pubber.client.PointsetManagerProvider;
-import daq.pubber.client.PointsetManagerProvider.ExtraPointsetEvent;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Stream;
 import udmi.schema.Entry;
 import udmi.schema.PointPointsetConfig;
-import udmi.schema.PointPointsetEvents;
 import udmi.schema.PointPointsetModel;
-import udmi.schema.PointPointsetState;
-import udmi.schema.PointPointsetState.Value_state;
 import udmi.schema.PointsetConfig;
-import udmi.schema.PointsetEvents;
 import udmi.schema.PointsetModel;
 import udmi.schema.PointsetState;
 import udmi.schema.PubberConfiguration;
@@ -139,7 +127,8 @@ public class PointsetManager extends ManagerBase implements PointsetManagerProvi
 
   /**
    * Updates the configuration of pointset points.
-   * */
+   *
+   */
   @Override
   public void updatePointsetPointsConfig(PointsetConfig config) {
     if (config == null) {

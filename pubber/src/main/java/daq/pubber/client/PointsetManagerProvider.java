@@ -133,7 +133,7 @@ public interface PointsetManagerProvider extends ManagerLog {
   }
 
   /**
-   * marks point as invalid.
+   * Marks point as invalid.
    *
    * @param pointName point name.
    * @return PointPointsetState.
