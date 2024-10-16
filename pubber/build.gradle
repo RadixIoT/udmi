@@ -91,7 +91,7 @@ publishing {
         mavenJava(MavenPublication) {
             groupId = 'com.radixiot.udmi'
             artifactId = 'pubber'
-            version = "1.5.1-radix.mango-1575.1"
+            version = "1.5.1-radix-mango-1575.1"
             from components.java
         }
     }
