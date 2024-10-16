@@ -11,6 +11,7 @@ import daq.pubber.MqttDevice;
 import java.util.concurrent.atomic.AtomicBoolean;
 import udmi.schema.Config;
 import udmi.schema.Metadata;
+import udmi.schema.State;
 
 /**
  * Proxy Device host provider.
@@ -69,8 +70,11 @@ public interface ProxyDeviceHostProvider extends ManagerHost, ManagerLog {
     }
   }
 
-  @Override
-  void update(Object update);
+  default void update(Object update) {
+    updateStateHolder(getDeviceState(), update);
+    getStateDirty().set(true);
+  }
+
 
   @Override
   default FamilyProvider getLocalnetProvider(String family) {
@@ -82,5 +86,10 @@ public interface ProxyDeviceHostProvider extends ManagerHost, ManagerLog {
   }
 
   void error(String message);
+
+
+  AtomicBoolean getStateDirty();
+
+  State getDeviceState();
 
 }

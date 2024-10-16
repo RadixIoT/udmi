@@ -506,6 +506,52 @@ public interface PubberHostProvider extends ManagerHost {
     maybeRedirectEndpoint();
   }
 
+
+  /**
+   * For testing, if configured, send a slate of bad messages for testing by the message handling
+   * infrastructure. Uses the sekrit REPLACE_MESSAGE_WITH field to sneak bad output into the pipe.
+   * E.g., Will send a message with "{ INVALID JSON!" as a message payload. Inserts a delay before
+   * each message sent to stabilize the output order for testing purposes.
+   */
+  default void sendEmptyMissingBadEvents() {
+    if (!isTrue(getConfig().options.emptyMissing)) {
+      return;
+    }
+
+    final int explicitPhases = 3;
+
+    checkState(MESSAGE_REPORT_INTERVAL > explicitPhases + INVALID_REPLACEMENTS.size() + 1,
+        "not enough space for hacky messages");
+    int phase = (getDeviceUpdateCount() + MESSAGE_REPORT_INTERVAL / 2) % MESSAGE_REPORT_INTERVAL;
+
+    safeSleep(INJECT_MESSAGE_DELAY_MS);
+
+    if (phase == 0) {
+      flushDirtyState();
+      InjectedState invalidState = new InjectedState();
+      invalidState.REPLACE_MESSAGE_WITH = CORRUPT_STATE_MESSAGE;
+      warn("Sending badly formatted state as per configuration");
+      publishStateMessage(invalidState);
+    } else if (phase == 1) {
+      InjectedMessage invalidEvent = new InjectedMessage();
+      invalidEvent.field = "bunny";
+      warn("Sending badly formatted message with extra field");
+      publishDeviceMessage(invalidEvent);
+    } else if (phase == 2) {
+      FakeTopic invalidTopic = new FakeTopic();
+      warn("Sending badly formatted message with fake topic");
+      publishDeviceMessage(invalidTopic);
+    } else if (phase < INVALID_REPLACEMENTS.size() + explicitPhases) {
+      String key = INVALID_KEYS.get(phase - explicitPhases);
+      InjectedMessage replacedEvent = new InjectedMessage();
+      replacedEvent.REPLACE_TOPIC_WITH = key;
+      replacedEvent.REPLACE_MESSAGE_WITH = INVALID_REPLACEMENTS.get(key);
+      warn("Sending badly formatted message of type " + key);
+      publishDeviceMessage(replacedEvent);
+    }
+    safeSleep(INJECT_MESSAGE_DELAY_MS);
+  }
+
   /**
    * Maybe tweak state.
    */

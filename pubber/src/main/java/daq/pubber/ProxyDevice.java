@@ -77,12 +77,6 @@ public class ProxyDevice extends ManagerBase implements ProxyDeviceHostProvider 
     deviceManager.stop();
   }
 
-  @Override
-  public void update(Object update) {
-    updateStateHolder(deviceState, update);
-    stateDirty.set(true);
-  }
-
   private void publishDirtyState() {
     if (stateDirty.getAndSet(false)) {
       pubberHost.publish(deviceId, deviceState);
@@ -113,4 +107,5 @@ public class ProxyDevice extends ManagerBase implements ProxyDeviceHostProvider 
   public AtomicBoolean isActive() {
     return active;
   }
+
 }

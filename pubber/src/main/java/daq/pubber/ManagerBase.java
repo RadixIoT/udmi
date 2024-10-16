@@ -224,4 +224,8 @@ public abstract class ManagerBase implements ManagerProvider {
   public State getDeviceState() {
     return deviceState;
   }
+
+  public AtomicBoolean getStateDirty() {
+    return stateDirty;
+  }
 }
