@@ -230,9 +230,9 @@ jobs:
     name: Automapping capability
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: ${{ vars.TARGET_PROJECT != '' && !cancelled() }}
+    if: ${{ !cancelled() }}
     env:
-      TARGET_PROJECT: ${{ vars.TARGET_PROJECT }}
+      TARGET_PROJECT: //mqtt/localhost
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
