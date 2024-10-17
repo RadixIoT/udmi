@@ -134,7 +134,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: automapping
-    if: vars.TARGET_PROJECT != ''
+
     env:
       TARGET_PROJECT: //mqtt/localhost
       UDMI_ALT_REGISTRY: ZZ-REDIRECT-NA
@@ -280,7 +280,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: baseline
     timeout-minutes: 15
-    
+    if: ${{ !cancelled() }}
     env:
       TARGET_PROJECT: //mqtt/localhost
       UDMI_ALT_REGISTRY: ZZ-REDIRECT-NA
