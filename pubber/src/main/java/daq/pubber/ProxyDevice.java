@@ -68,6 +68,11 @@ public class ProxyDevice extends ManagerBase implements ProxyDeviceHostProvider 
   }
 
   @Override
+  public void shutdown() {
+    deviceManager.shutdown();
+  }
+
+  @Override
   public void stop() {
     deviceManager.stop();
   }
