@@ -1,21 +1,18 @@
 package udmi.lib.client;
 
 import static com.google.udmi.util.GeneralUtils.catchToNull;
+import static com.google.udmi.util.GeneralUtils.getNow;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
-import static com.google.udmi.util.GeneralUtils.ifTrueGet;
-import static com.google.udmi.util.GeneralUtils.ifTrueThen;
-import static com.google.udmi.util.GeneralUtils.isTrue;
 import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
-import static java.util.function.Predicate.not;
 
 import com.google.udmi.util.SiteModel;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import udmi.lib.ManagerHost;
 import udmi.lib.ProtocolFamily;
+import udmi.lib.intf.ManagerHost;
 import udmi.schema.Config;
 import udmi.schema.Entry;
 import udmi.schema.GatewayConfig;
@@ -24,12 +21,11 @@ import udmi.schema.Level;
 import udmi.schema.Metadata;
 import udmi.schema.PointPointsetConfig;
 import udmi.schema.PointsetConfig;
-import udmi.schema.PubberConfiguration;
 
 /**
  * Gateway client.
  */
-public interface GatewayManager extends Manager {
+public interface GatewayManager extends SubblockManager {
 
   String EXTRA_PROXY_DEVICE = "XXX-1";
   String EXTRA_PROXY_POINT = "xxx_conflagration";
@@ -54,20 +50,12 @@ public interface GatewayManager extends Manager {
     }
 
     Map<String, ProxyDeviceHost> devices = new HashMap<>();
-
-    String firstId = proxyIds.stream().sorted().findFirst().orElse(null);
-    String noProxyId = ifTrueGet(isTrue(getOptions().noProxy), () -> firstId);
-    ifNotNullThen(noProxyId, id -> warn(format("Not proxying device %s", noProxyId)));
-    proxyIds.stream().filter(not(id -> id.equals(noProxyId)))
-        .forEach(id -> devices.put(id, createProxyDevice(getHost(), id, getConfig())));
-
-    ifTrueThen(getOptions().extraDevice, () -> devices.put(EXTRA_PROXY_DEVICE, makeExtraDevice()));
+    proxyIds.forEach(id -> devices.put(id, createProxyDevice(getHost(), id)));
 
     return devices;
   }
 
-  ProxyDeviceHost createProxyDevice(ManagerHost host, String id,
-      PubberConfiguration config);
+  ProxyDeviceHost createProxyDevice(ManagerHost host, String id);
 
   ProxyDeviceHost makeExtraDevice();
 
@@ -89,9 +77,6 @@ public interface GatewayManager extends Manager {
   /**
    * Sets gateway status.
    *
-   * @param category Category.
-   * @param level Level.
-   * @param message Message.
    */
   default void setGatewayStatus(String category, Level level, String message) {
     // TODO: Implement a map or tree or something to properly handle different error sources.
@@ -99,6 +84,7 @@ public interface GatewayManager extends Manager {
     getGatewayState().status.category = category;
     getGatewayState().status.level = level.value();
     getGatewayState().status.message = message;
+    getGatewayState().status.timestamp = getNow();
   }
 
   /**
@@ -138,7 +124,5 @@ public interface GatewayManager extends Manager {
   }
 
   void updateConfig(GatewayConfig gateway);
-
-  void setSiteModel(SiteModel siteModel);
 
 }
