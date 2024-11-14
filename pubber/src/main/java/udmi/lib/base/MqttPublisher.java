@@ -18,7 +18,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.util.ISO8601DateFormat;
 import com.google.common.base.Preconditions;
 import com.google.common.hash.Hashing;
-import com.google.udmi.util.CertManager;
+import com.google.udmi.util.CertManagerIntf;
 import com.google.udmi.util.NanSerializer;
 import com.google.udmi.util.SiteModel;
 import com.google.udmi.util.SiteModel.ClientInfo;
@@ -114,7 +114,7 @@ public class MqttPublisher implements Publisher {
   private final Map<String, Class<Object>> handlersType = new ConcurrentHashMap<>();
   private final Consumer<Exception> onError;
   private final String deviceId;
-  private final CertManager certManager;
+  private final CertManagerIntf certManager;
   private final EndpointConfiguration configuration;
   private CountDownLatch connectionLatch;
   private String topicPrefixPrefix;
@@ -123,7 +123,7 @@ public class MqttPublisher implements Publisher {
    * Create a mqtt publisher for this client.
    */
   public MqttPublisher(EndpointConfiguration configuration, Consumer<Exception> onError,
-      CertManager certManager) {
+      CertManagerIntf certManager) {
     this.configuration = configuration;
     this.certManager = certManager;
     if (isGcpIotCore(configuration)) {
@@ -372,6 +372,7 @@ public class MqttPublisher implements Publisher {
       options.setMqttVersion(MqttConnectOptions.MQTT_VERSION_3_1_1);
       options.setMaxInflight(PUBLISH_THREAD_COUNT * 2);
       options.setConnectionTimeout(INITIALIZE_TIME_MS);
+      verifyHostname(options);
 
       configureAuth(options);
       reauthTimes.put(deviceId, Instant.now().plusSeconds(TOKEN_EXPIRY_MINUTES * 60 / 2));
@@ -389,8 +390,14 @@ public class MqttPublisher implements Publisher {
     }
   }
 
+  private void verifyHostname(MqttConnectOptions options) {
+    if (certManager.isVerifyHostname()) {
+      options.setSSLHostnameVerifier((hostname, session) -> true);
+    }
+  }
+
   private SocketFactory getSocketFactory() {
-    return ofNullable(certManager).map(CertManager::getSocketFactory)
+    return ofNullable(certManager).map(CertManagerIntf::getSocketFactory)
         .orElse(SSLSocketFactory.getDefault());
   }
 

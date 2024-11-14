@@ -2,6 +2,7 @@ package udmi.lib.base;
 
 import static org.junit.Assert.assertEquals;
 
+import com.google.udmi.util.CertManager;
 import daq.pubber.TestBase;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.Consumer;
@@ -53,7 +54,7 @@ public class MqttPublisherTest extends TestBase {
 
     public MockPublisher(EndpointConfiguration configuration,
         Consumer<Exception> onError) {
-      super(configuration, onError, null);
+      super(configuration, onError, Mockito.mock(CertManager.class));
     }
 
     @Override

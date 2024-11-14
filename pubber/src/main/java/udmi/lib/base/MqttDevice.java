@@ -4,7 +4,7 @@ import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static java.util.Objects.requireNonNull;
 import static udmi.lib.base.MqttPublisher.TEST_PREFIX;
 
-import com.google.udmi.util.CertManager;
+import com.google.udmi.util.CertManagerIntf;
 import java.util.function.Consumer;
 import udmi.lib.intf.Publisher;
 import udmi.schema.EndpointConfiguration;
@@ -23,13 +23,13 @@ public class MqttDevice {
 
   private final String deviceId;
   private final Publisher publisher;
-  private final CertManager certManager;
+  private final CertManagerIntf certManager;
 
   /**
    * Builds a MQTT device.
    */
   public MqttDevice(EndpointConfiguration configuration, Consumer<Exception> onError,
-      CertManager certManager) {
+      CertManagerIntf certManager) {
     this.certManager = certManager;
     deviceId = requireNonNull(configuration.deviceId, "deviceId not specified");
     publisher = getPublisher(configuration, onError);

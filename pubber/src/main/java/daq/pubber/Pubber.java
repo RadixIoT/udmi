@@ -27,6 +27,7 @@ import static java.util.Optional.ofNullable;
 import static udmi.schema.EndpointConfiguration.Protocol.MQTT;
 
 import com.google.udmi.util.CertManager;
+import com.google.udmi.util.CertManagerIntf;
 import com.google.udmi.util.SiteModel;
 import com.google.udmi.util.SiteModel.MetadataException;
 import daq.pubber.PubSubClient.Bundle;
@@ -483,7 +484,7 @@ public class Pubber extends PubberManager implements PubberUdmiPublisher {
     augmentEndpoint(endpoint);
     String keyPassword = siteModel.getDevicePassword(config.deviceId);
     String targetDeviceId = getTargetDeviceId(siteModel, config.deviceId);
-    CertManager certManager = new CertManager(new File(siteModel.getReflectorDir(), CA_CRT),
+    CertManagerIntf certManager = new CertManager(new File(siteModel.getReflectorDir(), CA_CRT),
         siteModel.getDeviceDir(targetDeviceId), endpoint.transport, keyPassword,
         this::info);
     deviceTarget = new MqttDevice(endpoint, this::publisherException, certManager);
