@@ -399,7 +399,12 @@ public interface PubberUdmiPublisher extends UdmiPublisher {
     return buffer.toString();
   }
 
-  private void configHandler(Config config) {
+  /**
+   * Configures the handler with the given configuration.
+   *
+   * @param config The configuration to be applied.
+   */
+  default void configHandler(Config config) {
     try {
       configPreprocess(getDeviceId(), config);
       debug(format("Config update %s%s", getDeviceId(), getDeviceManager().getTestingTag()),
