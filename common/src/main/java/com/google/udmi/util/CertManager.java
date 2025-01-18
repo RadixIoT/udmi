@@ -5,9 +5,11 @@ import static com.google.udmi.util.GeneralUtils.sha256;
 import static java.lang.String.format;
 
 import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileReader;
+import java.io.StringReader;
 import java.security.KeyStore;
 import java.security.PrivateKey;
 import java.security.Security;
@@ -49,6 +51,9 @@ public class CertManager {
   private final File crtFile;
   private final char[] password;
   private final Transport transport;
+  private final String caCertificate;
+  private final String clientCertificate;
+  private final String clientPrivateKey;
 
   {
     Security.addProvider(new BouncyCastleProvider());
@@ -61,6 +66,9 @@ public class CertManager {
       String passString, Consumer<String> logging) {
     this.caCrtFile = caCrtFile;
     this.transport = transport;
+    this.caCertificate = "";
+    this.clientCertificate = "";
+    this.clientPrivateKey = "";
 
     if (Transport.SSL.equals(transport)) {
       String prefix = keyPrefix(clientDir);
@@ -78,6 +86,21 @@ public class CertManager {
     }
   }
 
+  public CertManager(String caCrt, String clientCrt, String key, Transport transport,
+      String passString, Consumer<String> logging) {
+    this.caCrtFile = null;
+    crtFile = null;
+    keyFile = null;
+
+    this.transport = transport;
+    this.password = passString.toCharArray();
+    logging.accept("Password sha256 " + sha256(passString).substring(0, 8));
+
+    this.caCertificate = caCrt;
+    this.clientCertificate = clientCrt;
+    this.clientPrivateKey = key;
+  }
+
   private String keyPrefix(File clientDir) {
     File rsaCrtFile = new File(clientDir, "rsa_private.crt");
     File ecCrtFile = new File(clientDir, "ec_private.crt");
@@ -93,17 +116,17 @@ public class CertManager {
     CertificateFactory certFactory = CertificateFactory.getInstance(X509_FACTORY);
 
     final X509Certificate caCert;
-    try (BufferedInputStream bis = new BufferedInputStream(new FileInputStream(caCrtFile))) {
+    try (BufferedInputStream bis = caCrtFile != null ? new BufferedInputStream(new FileInputStream(caCrtFile)) : new BufferedInputStream(new BufferedInputStream(new ByteArrayInputStream(caCertificate.getBytes())))) {
       caCert = (X509Certificate) certFactory.generateCertificate(bis);
     }
 
     final X509Certificate clientCert;
-    try (BufferedInputStream bis = new BufferedInputStream(new FileInputStream(crtFile))) {
+    try (BufferedInputStream bis = crtFile != null ? new BufferedInputStream(new FileInputStream(crtFile)) : new BufferedInputStream(new ByteArrayInputStream(clientCertificate.getBytes()))) {
       clientCert = (X509Certificate) certFactory.generateCertificate(bis);
     }
 
     final PrivateKey privateKey;
-    try (PEMParser pemParser = new PEMParser(new FileReader(keyFile))) {
+    try (PEMParser pemParser = keyFile!=null ? new PEMParser(new FileReader(keyFile)) : new PEMParser(new StringReader(clientPrivateKey))) {
       Object pemObject = pemParser.readObject();
       if (pemObject instanceof PEMEncryptedKeyPair keyPair) {
         PEMDecryptorProvider decProv = new JcePEMDecryptorProviderBuilder().build(password);
