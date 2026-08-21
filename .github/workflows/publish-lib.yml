@@ -1,9 +1,16 @@
 name: Publish UDMI lib
 
-# One-shot publisher for com.google.udmi:lib into this repo's GitHub Packages.
-# Calls Gradle directly so UDMI_VERSION is not overwritten by git describe.
+# Publishes com.google.udmi:lib to this repo's GitHub Packages.
+# Dispatch against the git ref to build, and pass the Maven version string.
+# Calls Gradle directly so git describe does not overwrite UDMI_VERSION.
 on:
   workflow_dispatch:
+    inputs:
+      udmi_version:
+        description: Maven version for com.google.udmi:lib
+        required: true
+        type: string
+        default: '1.5.2-337-g230eb1199'
 
 permissions:
   contents: read
@@ -17,7 +24,7 @@ jobs:
     env:
       GITHUB_ACTOR: ${{ github.actor }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      UDMI_VERSION: 1.5.2-337-g230eb1199
+      UDMI_VERSION: ${{ inputs.udmi_version }}
     steps:
       - uses: actions/checkout@v4
         with:
