@@ -1,0 +1,31 @@
+name: Publish UDMI lib
+
+# One-shot publisher for com.google.udmi:lib into this repo's GitHub Packages.
+# Calls Gradle directly so UDMI_VERSION is not overwritten by git describe.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  maven:
+    name: Publish maven package (pubber)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITHUB_ACTOR: ${{ github.actor }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      UDMI_VERSION: 1.5.2-337-g230eb1199
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Publish maven package
+        run: pubber/gradlew -p pubber publish -x test -x check -x checkstyleMain -x checkstyleTest --no-daemon
