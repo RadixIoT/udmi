@@ -7,6 +7,77 @@
 set -eu
 set -o pipefail
 
+function normalize_conn_spec {
+    local spec="${1:-}"
+    if [[ -z "$spec" ]]; then
+        printf '%s\n' "$spec"
+        return 0
+    fi
+    if [[ "$spec" =~ ^//(mqtts|ssl)/(.*)$ ]]; then
+        spec="//mqtt/${BASH_REMATCH[2]}"
+    fi
+    if [[ "$spec" =~ ^// ]]; then
+        printf '%s\n' "$spec"
+        return 0
+    fi
+    if [[ "$spec" =~ ^(mqtt|mqtts|ssl)://(.*)$ ]]; then
+        local body="${BASH_REMATCH[2]%/}"
+        local prefix=""
+        local endpoint="$body"
+        if [[ "$body" == *"/"* ]]; then
+            prefix="${body#*/}"
+            endpoint="${body%%/*}"
+        fi
+        if [[ "$endpoint" == *@* && "$endpoint" != *":"*@* ]]; then
+            [[ -z "$prefix" ]] && prefix="${endpoint%%@*}"
+            endpoint="${endpoint#*@}"
+        elif [[ "$endpoint" == *":"*@* ]]; then
+            endpoint="${endpoint#*@}"
+        fi
+        if [[ -n "$prefix" ]]; then
+            printf '%s\n' "//mqtt/${endpoint}/${prefix}"
+        else
+            printf '%s\n' "//mqtt/${endpoint}"
+        fi
+        return 0
+    fi
+    printf '%s\n' "$spec"
+}
+
+# Auto-detect isolated mode from any command-line arguments or variables matching localhost:<port>
+for arg in "${TARGET_PROJECT:-}" "${target_project:-}" "${project_spec:-}" "${project_id:-}" ${1+"$@"}; do
+    if [[ -n "$arg" && "$arg" =~ localhost:([0-9]+) ]]; then
+        export MQTT_PORT="${BASH_REMATCH[1]}"
+        if [[ $MQTT_PORT != 8883 ]]; then
+            export ETCD_PORT=$((MQTT_PORT + 1))
+            export INFLUX_PORT=$((MQTT_PORT + 2))
+            export POSTGRES_PORT=$((MQTT_PORT + 3))
+        fi
+        break
+    fi
+done
+
+if [[ -n ${UDMI_RUN_DIR:-} ]]; then
+    mkdir -p "$UDMI_RUN_DIR/var" "$UDMI_RUN_DIR/out"
+    export MOSQUITTO_ETC_DIR="${MOSQUITTO_ETC_DIR:-$UDMI_RUN_DIR/var/mosquitto}"
+    export ETCD_DIR="${ETCD_DIR:-$UDMI_RUN_DIR/var/etcd}"
+    export ETCD_LOG="${ETCD_LOG:-$UDMI_RUN_DIR/out/etcd.log}"
+    export INFLUX_DIR="${INFLUX_DIR:-$UDMI_RUN_DIR/var/influx}"
+    export INFLUX_LOG="${INFLUX_LOG:-$UDMI_RUN_DIR/out/influx.log}"
+    export POSTGRES_DIR="${POSTGRES_DIR:-$UDMI_RUN_DIR/var/postgresql}"
+    export POSTGRES_LOG="${POSTGRES_LOG:-$UDMI_RUN_DIR/out/postgresql.log}"
+    export UDMIS_PID_FILE="${UDMIS_PID_FILE:-$UDMI_RUN_DIR/var/udmis.pid}"
+    export UDMI_POD_READY="${UDMI_POD_READY:-$UDMI_RUN_DIR/var/pod_ready.txt}"
+    export UDMIS_CONFIG="${UDMIS_CONFIG:-$UDMI_RUN_DIR/var/local_pod.json}"
+    export UDMIS_LOG="${UDMIS_LOG:-$UDMI_RUN_DIR/out/udmis.log}"
+    export BUTLER_PID_FILE="${BUTLER_PID_FILE:-$UDMI_RUN_DIR/var/butler.pid}"
+    export BUTLER_LOG="${BUTLER_LOG:-$UDMI_RUN_DIR/out/butler.log}"
+fi
+
+if [[ $(id -u) == 0 ]]; then
+    sudo() { "$@"; }
+fi
+
 # Force consistent sort order and other processing things
 export LC_ALL=en_US.UTF-8
 
@@ -52,11 +123,11 @@ function pubber_bg {
 
     device_dir=$site_path/devices/$device_id
 
-    echo bin/keygen CERT $device_dir
-    bin/keygen CERT $device_dir || true
+    echo $UDMI_ROOT/bin/keygen CERT $device_dir
+    $UDMI_ROOT/bin/keygen CERT $device_dir || true
 
     echo Writing pubber output to $outfile, serial no $serial_no
-    cmd="bin/pubber $site_path $project_spec $device_id $serial_no $@"
+    cmd="$UDMI_ROOT/bin/pubber $site_path $project_spec $device_id $serial_no $@"
     echo $cmd
 
     date > $outfile
@@ -84,21 +155,21 @@ function pubber_bg {
 UDMI_ROOT=$(realpath $UDMI_ROOT)
 
 UDMI_JAR=$UDMI_ROOT/validator/build/libs/validator-1.0-SNAPSHOT-all.jar
-
+SERVICES_JAR=$UDMI_ROOT/services/build/libs/services-1.0-SNAPSHOT-all.jar
 VERSION_BASE='1.*'
 
 # Ignore non-version branches (e.g. something like 'develop'), but include dirty info.
-udmi_version=$(cd $UDMI_ROOT; git describe --dirty --match $VERSION_BASE) || true
+udmi_version=$(cd $UDMI_ROOT; git describe --dirty --match $VERSION_BASE 2>/dev/null) || true
 # No luck... just generate any viable version.
-[[ -n $udmi_version ]] || udmi_version=git-$(cd $UDMI_ROOT; git describe --dirty --match $VERSION_BASE --always) || true
+[[ -n $udmi_version ]] || udmi_version=git-$(cd $UDMI_ROOT; git describe --dirty --match $VERSION_BASE --always 2>/dev/null) || true
 [[ $udmi_version == git- ]] && udmi_version=unknown
 
 # No dirty so it always will match. No shenanigans.
-udmi_rev=$(cd $UDMI_ROOT; git describe --match $VERSION_BASE) || udmi_rev=unknown
-revparse=`git rev-parse $udmi_rev` || revparse=unknown
+udmi_rev=$(cd $UDMI_ROOT; git describe --match $VERSION_BASE 2>/dev/null) || udmi_rev=unknown
+revparse=`git rev-parse $udmi_rev 2>/dev/null` || revparse=unknown
 
 udmi_commit=${revparse:0:9}
-udmi_timever=$(TZ=UTC git log --date=iso-strict-local -1 --pretty=format:"%cd" ${udmi_commit}) || udmi_timever=unknown
+udmi_timever=$(TZ=UTC git log --date=iso-strict-local -1 --pretty=format:"%cd" ${udmi_commit} 2>/dev/null) || udmi_timever=unknown
 
 export UDMI_ROOT
 export UDMI_VERSION=$udmi_version
@@ -110,6 +181,97 @@ function stream_to_gsheets {
     local tool_name=$1
     local sheet_id=$2
     timestamp=$(date +%Y%m%d_%H%M%S)
-    java -cp "$UDMI_JAR" "com.google.udmi.util.SheetsOutputStream" "$tool_name" \
+    java -cp "$SERVICES_JAR" "com.google.udmi.util.SheetsOutputStream" "$tool_name" \
         "$sheet_id" "$tool_name.$timestamp.log"
+}
+
+function sync_disk_site_model_to_bambi {
+    local spreadsheet_id=$1
+    local local_path_to_site_model=$2
+    java -cp "$SERVICES_JAR" "com.google.bos.iot.core.bambi.BambiSync" \
+        "$spreadsheet_id" "$local_path_to_site_model"
+}
+
+function sync_bambi_site_model_to_disk {
+    local spreadsheet_id=$1
+    local local_path_to_site_model=$2
+    java -cp "$SERVICES_JAR" "com.google.bos.iot.core.bambi.LocalDiskSync" \
+        "$spreadsheet_id" "$local_path_to_site_model"
+}
+
+function clone_gcsr_site_model {
+    local repo_name=$1
+    local project_id=$2
+    local clone_dir=$3
+    echo Cloning "$repo_name" into "$clone_dir"
+    rm -rf "$clone_dir"
+    if gcloud source repos clone "$repo_name" "$clone_dir" --project="$project_id"; then
+        echo "Successfully cloned '$repo_name' into '$clone_dir'"
+        return 0
+    else
+        echo "Error cloning '$repo_name' into '$clone_dir'" >&2
+        return 1
+    fi
+}
+
+function setup_service_gcp_environment {
+    local service_name="$1"
+    echo "Configuring for GCP environment..."
+    local service_account
+    service_account=$(curl -s -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/email)
+
+    echo "Using GCP service account: $service_account"
+    gcloud config set account "$service_account"
+
+    git config --global user.email "$service_account"
+    git config --global user.name "${service_name} backend runner ${UDMI_PREFIX#\~}"
+}
+
+function build_services_jar {
+    if [[ -d "$UDMI_ROOT/services/src" ]]; then
+        echo "Checking for jar updates..."
+        if ! up_to_date "$SERVICES_JAR" "$UDMI_ROOT/services/src"; then
+            "$UDMI_ROOT/services/bin/build"
+        fi
+    fi
+}
+
+function ensure_pubsub_topic_exists {
+    local topic_name="$1"
+
+    echo "Checking for Pub/Sub topic: $topic_name"
+    if ! gcloud pubsub topics describe "$topic_name" &>/dev/null; then
+        echo "Creating topic: $topic_name"
+        gcloud pubsub topics create "$topic_name"
+    else
+        echo "Topic $topic_name already exists."
+    fi
+}
+
+function ensure_pubsub_subscription_exists {
+    local subscription_name="$1"
+    local topic_name="$2"
+    local no_expiration_flag="${3:-}"
+
+    echo "Checking for Pub/Sub subscription '$subscription_name'..."
+
+    if ! gcloud pubsub subscriptions describe "$subscription_name" &>/dev/null; then
+        echo "Creating subscription: $subscription_name"
+
+        local gcloud_args=(
+            "create" "$subscription_name"
+            "--topic=$topic_name"
+        )
+
+        if [[ "$no_expiration_flag" != "--no-expiration" ]]; then
+            echo "Setting a 24h expiration period."
+            gcloud_args+=("--expiration-period=24h")
+        else
+            echo "Flag '--no-expiration' used. Creating without an expiration period."
+        fi
+
+        gcloud pubsub subscriptions "${gcloud_args[@]}"
+    else
+        echo "Subscription '$subscription_name' already exists."
+    fi
 }

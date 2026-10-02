@@ -21,19 +21,19 @@ import com.google.bos.udmi.service.core.ControlProcessor;
 import com.google.bos.udmi.service.core.CronProcessor;
 import com.google.bos.udmi.service.core.DistributorPipe;
 import com.google.bos.udmi.service.core.ProcessorBase;
-import com.google.bos.udmi.service.core.ProvisioningEngine;
 import com.google.bos.udmi.service.core.ReflectProcessor;
 import com.google.bos.udmi.service.core.StateProcessor;
 import com.google.bos.udmi.service.core.TargetProcessor;
+import com.google.bos.udmi.service.core.UufiProcessor;
 import com.google.bos.udmi.service.support.IotDataProvider;
 import com.google.common.collect.ImmutableSet;
 import java.io.File;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import org.jetbrains.annotations.NotNull;
 import udmi.schema.BridgePodConfiguration;
 import udmi.schema.EndpointConfiguration;
@@ -53,13 +53,23 @@ public class UdmiServicePod extends ContainerBase {
   public static final String DEPLOY_FILE = "var/deployed_version.json";
   public static final String UDMI_VERSION = requireNonNull(getDeployedConfig().udmi_version);
   public static final int FATAL_ERROR_CODE = -1;
-  static final File READY_INDICATOR = new File("/tmp/pod_ready.txt");
+  public static final String INSTANCE_ID = format("%08x", (long) (Math.random() * 0x100000000L));
+  static final File READY_INDICATOR = new File(
+      System.getenv("UDMI_POD_READY") != null
+          ? System.getenv("UDMI_POD_READY")
+          : "/tmp/pod_ready.txt");
   private static final Map<String, UdmiComponent> COMPONENT_MAP = new ConcurrentHashMap<>();
   private static final Set<Class<? extends ProcessorBase>> PROCESSOR_CLASSES = ImmutableSet.of(
       TargetProcessor.class, ReflectProcessor.class, StateProcessor.class, ControlProcessor.class,
-      ProvisioningEngine.class, BitboxAdapter.class, DistributorPipe.class);
-  private static final Map<String, Class<? extends ProcessorBase>> PROCESSORS =
-      PROCESSOR_CLASSES.stream().collect(Collectors.toMap(ContainerBase::getName, clazz -> clazz));
+      BitboxAdapter.class, DistributorPipe.class, UufiProcessor.class);
+  private static final Map<String, Class<? extends ProcessorBase>> PROCESSORS = new HashMap<>();
+
+  static {
+    PROCESSOR_CLASSES.forEach(clazz -> PROCESSORS.put(ContainerBase.getName(clazz), clazz));
+    PROCESSORS.put("uufi_out", UufiProcessor.class);
+    PROCESSORS.put("uufi_state", UufiProcessor.class);
+    PROCESSORS.put("uufi_events", UufiProcessor.class);
+  }
 
   /**
    * Core pod to instantiate all the other components as necessary based on configuration.
@@ -120,7 +130,10 @@ public class UdmiServicePod extends ContainerBase {
     return udmiConfig;
   }
 
-  private static PodConfiguration loadRecursive(File loadFile) {
+  /**
+   * Load pod configuration file recursively resolving include directives.
+   */
+  public static PodConfiguration loadRecursive(File loadFile) {
     System.err.println("Loading config file " + loadFile.getAbsolutePath());
     PodConfiguration loaded = loadFileStrictRequired(PodConfiguration.class, loadFile);
     return ifNotNullGet(loaded.include, include -> {
@@ -141,10 +154,44 @@ public class UdmiServicePod extends ContainerBase {
       UdmiServicePod udmiServicePod = new UdmiServicePod(args);
       Runtime.getRuntime().addShutdownHook(new Thread(udmiServicePod::shutdown));
       udmiServicePod.activate();
+      udmiServicePod.block();
     } catch (Exception e) {
       System.err.println("Exception activating pod: " + friendlyStackTrace(e));
       e.printStackTrace();
       System.exit(FATAL_ERROR_CODE);
+    }
+  }
+
+  private void block() {
+    try {
+      while (true) {
+        Thread.sleep(1000);
+      }
+    } catch (InterruptedException e) {
+      notice("Pod main thread interrupted");
+    }
+  }
+
+  // TODO: Temporary migration adapter to map legacy 'implicit' provider configuration to 'zanzara'.
+  // This should be removed after fully migrating all cluster configs and deployments to zanzara.
+  private static void adaptImplicitToZanzara(PodConfiguration config) {
+    if (config.iot_access != null && config.iot_access.containsKey("implicit")) {
+      System.err.println(
+          "WARNING: Temporary migration employed - adapting legacy 'implicit' iot_access "
+              + "configuration to 'zanzara'");
+      IotAccess implicitAccess = config.iot_access.remove("implicit");
+      IotAccess zanzaraAccess = config.iot_access.get("zanzara");
+      if (zanzaraAccess != null) {
+        config.iot_access.put("zanzara", mergeObject(zanzaraAccess, implicitAccess));
+      } else {
+        config.iot_access.put("zanzara", implicitAccess);
+      }
+      if (config.iot_access.containsKey("iot-access")) {
+        IotAccess dynamic = config.iot_access.get("iot-access");
+        if (dynamic.project_id != null) {
+          dynamic.project_id = dynamic.project_id.replace("implicit", "zanzara");
+        }
+      }
     }
   }
 
@@ -153,6 +200,7 @@ public class UdmiServicePod extends ContainerBase {
       throw new RuntimeException("Exactly one argument expected: pod_config.json");
     }
     PodConfiguration config = loadRecursive(new File(args[0]));
+    adaptImplicitToZanzara(config);
     System.err.println(stringify(config));
     ifNotNullThrow(config.include, "unresolved config include directive");
     return config;
@@ -186,9 +234,13 @@ public class UdmiServicePod extends ContainerBase {
     }
   }
 
+  /**
+   * Reset pod components and state for unit tests.
+   */
   public static void resetForTest() {
     COMPONENT_MAP.clear();
     READY_INDICATOR.delete();
+    CronProcessor.resetForTest();
   }
 
   private static void setConfigName(EndpointConfiguration config, String name) {
@@ -258,12 +310,10 @@ public class UdmiServicePod extends ContainerBase {
     return podConfiguration;
   }
 
-  /**
-   * Shutdown all processors and bridges in the pod.
-   */
   @Override
   public void shutdown() {
-    notice("Starting shutdown of container components");
+    notice("Starting shutdown of container components (triggered by "
+        + Thread.currentThread().getName() + ")");
     forAllComponents(UdmiComponent::shutdown);
     notice("Finished shutdown of container components");
     super.shutdown();

@@ -15,16 +15,6 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
  * 
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonPropertyOrder({
-    "include",
-    "base",
-    "flow_defaults",
-    "crons",
-    "flows",
-    "bridges",
-    "iot_access",
-    "iot_data"
-})
 public class PodConfiguration {
 
     @JsonProperty("include")
@@ -46,7 +36,7 @@ public class PodConfiguration {
      */
     @JsonProperty("flow_defaults")
     @JsonPropertyDescription("Parameters to define a message endpoint")
-    public EndpointConfiguration flow_defaults;
+    public udmi.schema.EndpointConfiguration flow_defaults;
     @JsonProperty("crons")
     public HashMap<String, EndpointConfiguration> crons;
     @JsonProperty("flows")

@@ -27,8 +27,9 @@ if ! diff $tmpfile etc/requirements.txt; then
 fi
 
 bin/gencode_java
-bin/gencode_python
+bin/gencode_py
 bin/gencode_docs
+bin/generate_presentation_config
 
 if [[ -n $check ]]; then
     echo Checking gencode docs links...
@@ -38,10 +39,22 @@ if [[ -n $check ]]; then
     sha256sum $files > /tmp/gencode.hash
     echo Checking gencode hash: diff /tmp/gencode.hash .gencode_hash.txt
     diff /tmp/gencode.hash .gencode_hash.txt
+
+    echo Comparing manually curated files - level.py with Level.java
+    # Extracts enum lines and strips syntax (Java parens vs Python equals) to normalize both to "NAME VALUE" pairs for comparison.
+    diff -s \
+      <(grep -E '^\s*[A-Z_]+\(-?[0-9]+\)' gencode/java/udmi/schema/Level.java | sed -E 's/^[[:space:]]*//; s/\(/ /; s/\)[,;]//' | sort) \
+      <(grep -E '^\s*[A-Z_]+\s*=\s*-?[0-9]+' gencode/python/udmi/schema/level.py  | sed -E 's/^[[:space:]]*//; s/\s*=\s*/ /'      | sort)
+
+    echo Checking presentation: diff misc/bambi/presentation.gld.json gencode/presentation/presentation.json
+    diff misc/bambi/presentation.gld.json gencode/presentation/presentation.json
 else
     echo Updating gencode hash...
     files=`find gencode/ -type f | sort`
     sha256sum $files > .gencode_hash.txt
+
+    echo Updating presentation golden source
+    cp gencode/presentation/presentation.json misc/bambi/presentation.gld.json
 fi
 
 echo Done with gencode $*

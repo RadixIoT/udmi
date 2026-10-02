@@ -1,5 +1,5 @@
 {
-  "$udmi_version": "1.5.2",
+  "$udmi_version": "1.5.7",
   "title": "Pubber Options",
   "description": "Pubber runtime options",
   "additionalProperties": true,
@@ -116,6 +116,14 @@
     },
     "fixedLogLevel": {
       "type": "integer"
+    },
+    "fastWrite": {
+      "type": "boolean",
+      "description": "If true, the pubber will simulate a fast writeback operations."
+    },
+    "delayWrite": {
+      "type": "boolean",
+      "description": "If true, the pubber will simulate a delayed writeback operations, leading to slow writeback without an intermediate updating state."
     },
     "softwareFirmwareValue": {
       "type": "string"

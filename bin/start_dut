@@ -1,0 +1,92 @@
+#!/bin/bash -e
+# Start a Pubber DUT for testing
+
+UDMI_ROOT=$(dirname $0)/..
+# cd $UDMI_ROOT
+source $UDMI_ROOT/etc/shell_common.sh
+
+# Function to stop an existing DUT by serial number
+stop_existing_dut_with_serial() {
+    local target_serial=$1
+    echo "Stopping/checking existing DUT with serial number: $target_serial"
+
+    # 1. If pid file exists, kill the parent bash/pubber process.
+    local pid_file="out/pubber.$target_serial.pid"
+    if [[ -f $pid_file ]]; then
+        local pid=$(cat $pid_file)
+        if kill -0 $pid 2>/dev/null; then
+            echo "Killing existing pubber runner PID $pid"
+            kill $pid || true
+        fi
+        rm -f $pid_file
+    fi
+
+    # 2. Also find and kill any java process running with this serial number.
+    local java_pids=$(ps ax | grep "[D]pubber.serialNo=$target_serial" | awk '{print $1}')
+    if [[ -n $java_pids ]]; then
+        echo "Killing existing java processes for serial $target_serial: $java_pids"
+        kill $java_pids || true
+    fi
+}
+
+# Check for special stop mode
+if [[ "$1" == "stop" ]]; then
+    if [[ $# -lt 2 ]]; then
+        fail "Usage: $0 stop SERIAL_NO"
+    fi
+    stop_existing_dut_with_serial "$2"
+    echo "DUT (serial $2) stopped."
+    exit 0
+fi
+
+if [[ $# -lt 3 ]]; then
+    fail "Usage: $0 SITE_PATH PROJECT_ID DEVICE_ID [SERIAL_NO] [PUBBER_OPTS]"
+fi
+
+site_path=$1
+project_id=$(normalize_conn_spec "$2")
+device_id=$3
+serial_no=${4:-dut-$RANDOM}
+pubber_opts=${5:-}
+
+PUBBER_LOG=out/pubber.$serial_no.log
+mkdir -p out
+ln -sf "pubber.$serial_no.log" out/pubber.log
+ln -sf "pubber.$serial_no.log" "out/pubber.log.$device_id"
+
+stop_existing_dut_with_serial "$serial_no"
+
+$UDMI_ROOT/bin/reset_config $site_path $project_id $device_id reset
+
+# Clean out the persistant data store to ensure a clean state each time.
+rm -rf $site_path/out/devices/${device_id}/persistent_data.json
+
+# Delete existing certificate to force regeneration with current CA
+rm -f $site_path/devices/${device_id}/*.crt
+
+$UDMI_ROOT/pubber/bin/build
+
+echo Writing pubber output to $PUBBER_LOG
+echo $UDMI_ROOT/bin/pubber $site_path $project_id $device_id $serial_no $pubber_opts
+$UDMI_ROOT/bin/pubber $site_path $project_id $device_id $serial_no $pubber_opts > $PUBBER_LOG 2>&1 &
+echo $! > out/pubber.$serial_no.pid
+
+WAITING=30
+for i in `seq 1 $WAITING`; do
+    echo Waiting for pubber startup $((WAITING - i))...
+    sleep 1
+    if fgrep "Connection complete" $PUBBER_LOG; then
+        break
+    fi
+done
+
+if [[ $i -eq $WAITING ]]; then
+    echo Pubber log $PUBBER_LOG:
+    cat $PUBBER_LOG
+    fail Pubber startup failed.
+fi
+
+# Augment the device metadata so that tests know what to expect...
+$UDMI_ROOT/bin/augment_metadata $site_path $device_id $pubber_opts
+
+echo "DUT $device_id (serial $serial_no) started and ready."

@@ -8,11 +8,13 @@ import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.GeneralUtils.mergeObject;
 import static com.google.udmi.util.GeneralUtils.toJsonString;
+import static com.google.udmi.util.JsonUtil.isoConvert;
 import static java.lang.String.format;
 import static java.nio.file.Files.readAllBytes;
 import static java.util.Objects.requireNonNull;
 import static java.util.Optional.ofNullable;
 import static udmi.schema.IotAccess.IotProvider.GBOS;
+import static udmi.schema.IotAccess.IotProvider.GREF;
 import static udmi.schema.IotAccess.IotProvider.MQTT;
 import static udmi.schema.IotAccess.IotProvider.PUBSUB;
 
@@ -24,6 +26,7 @@ import com.google.udmi.util.IotProvider;
 import com.google.udmi.util.MetadataMapKeys;
 import com.google.udmi.util.SiteModel;
 import java.io.File;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -180,9 +183,10 @@ public class CloudIotManager {
   }
 
   private IotProvider makeIotProvider() {
-    usePasswords = executionConfiguration.iot_provider == MQTT;
+    usePasswords = executionConfiguration.iot_provider == MQTT
+        || executionConfiguration.iot_provider == GREF;
 
-    if (projectId.equals(SiteModel.MOCK_PROJECT)) {
+    if (projectId.equals(SiteModel.MOCK_PROJECT) || projectId.equals(SiteModel.MOCK_CLEAN)) {
       System.err.println("Using mock iot client for special client " + projectId);
       return new IotMockProvider(executionConfiguration);
     }
@@ -229,17 +233,18 @@ public class CloudIotManager {
   }
 
   private void coerceCredentialsToPassword(String deviceId, CloudDeviceSettings settings) {
-    // TODO: Make this less ugly/hacky. Ick.
-    settings.credentials.forEach(credential -> {
+    if (settings.credentials != null && !settings.credentials.isEmpty()) {
+      Credential credential = settings.credentials.get(0);
       try {
         String prefix = getCredentialPrefix(credential.key_format);
-        credential.key_format = Key_format.PASSWORD;
         File privateKey = new File(siteModel, format(PRIVATE_KEY_BYTES_FMT, deviceId, prefix));
-        credential.key_data = makePassword(readAllBytes(privateKey.toPath()));
+        if (privateKey.exists()) {
+          settings.password = makePassword(readAllBytes(privateKey.toPath()));
+        }
       } catch (Exception e) {
-        throw new RuntimeException("While coercing credential for " + deviceId, e);
+        throw new RuntimeException("While generating password for " + deviceId, e);
       }
-    });
+    }
   }
 
   private String getCredentialPrefix(Key_format keyFormat) {
@@ -290,6 +295,7 @@ public class CloudIotManager {
     CloudModel cloudModel = new CloudModel();
     cloudModel.resource_type = gatewayIfTrue(settings.proxyDevices != null);
     cloudModel.credentials = getCredentials(settings);
+    cloudModel.password = settings.password;
     cloudModel.metadata = metadataMap;
     cloudModel.num_id = settings.deviceNumId;
     cloudModel.blocked = settings.blocked;
@@ -434,6 +440,8 @@ public class CloudIotManager {
     CloudModel settings = new CloudModel();
     settings.resource_type = Resource_type.REGISTRY;
     settings.credentials = List.of(getIotProvider().getCredential());
+    settings.metadata = new HashMap<>();
+    settings.metadata.put(MetadataMapKeys.UDMI_PROVISIONED, isoConvert());
     getIotProvider().createResource(suffix, settings);
     return requireNonNull(settings.num_id, "Missing registry name in reply");
   }
@@ -448,6 +456,10 @@ public class CloudIotManager {
     registryModel.metadata = new HashMap<>();
     registryModel.metadata.put(
         MetadataMapKeys.UDMI_METADATA, toJsonString(siteMetadata)
+    );
+    registryModel.metadata.put(
+        MetadataMapKeys.UDMI_PROVISIONED,
+        isoConvert(ofNullable(siteMetadata.timestamp).orElseGet(Date::new))
     );
     getIotProvider().updateRegistry(registryModel);
   }

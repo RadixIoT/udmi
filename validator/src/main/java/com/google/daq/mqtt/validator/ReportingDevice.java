@@ -72,7 +72,7 @@ public class ReportingDevice implements ErrorCollector {
     entry.detail = detail == null ? Common.getExceptionDetail(error, ReportingDevice.class,
         ReportingDevice::validationMessage) : detail;
     assertTrue("valid entry category", Category.LEVEL.containsKey(category));
-    entry.category = Category.VALIDATION_DEVICE_SCHEMA;
+    entry.category = category;
     entry.level = Level.ERROR.value();
     entry.timestamp = getTimestamp();
     return entry;
@@ -160,6 +160,15 @@ public class ReportingDevice implements ErrorCollector {
     return lastSeen.after(getThreshold(now));
   }
 
+  public boolean seenSchemaRecently(String schemaName, Instant now) {
+    Date seen = messageMarks.get(schemaName);
+    return seen != null && seen.after(getThreshold(now));
+  }
+
+  public boolean hasSeenTelemetry(Instant now) {
+    return seenSchemaRecently("events_pointset", now);
+  }
+
   /**
    * Check if this device as errors.
    *
@@ -175,7 +184,8 @@ public class ReportingDevice implements ErrorCollector {
   public void validateRawMessage(String schemaName, Map<String, Object> message,
       Map<String, String> attributes) {
     if (metadata != null) {
-      Object obj = convertTo(Common.classForSchema(schemaName), message);
+      Class<?> targetClass = Common.classForSchema(schemaName);
+      Object obj = convertTo(targetClass, message);
       pointsetValidator.validateMessage(obj, attributes);
       discoveryValidator.validateMessage(obj, attributes);
     }
@@ -317,7 +327,12 @@ public class ReportingDevice implements ErrorCollector {
       return;
     }
     if (messageEntries.size() == 1) {
-      throw (RuntimeException) entryExceptions.get(messageEntries.get(0));
+      Exception exception = entryExceptions.get(messageEntries.get(0));
+      if (exception instanceof RuntimeException runtimeException) {
+        throw runtimeException;
+      } else {
+        throw new RuntimeException("Encapsulated Error", exception);
+      }
     }
     List<Exception> exceptions = entries.stream().map(entryExceptions::get).toList();
     throw new ExceptionList(exceptions);
@@ -330,5 +345,6 @@ public class ReportingDevice implements ErrorCollector {
 
     public Set<String> extraPoints;
     public Set<String> missingPoints;
+    public Set<String> outOfRangePoints;
   }
 }

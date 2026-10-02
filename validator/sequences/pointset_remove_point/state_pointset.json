@@ -1,8 +1,5 @@
 {
   "points" : {
-    "filter_alarm_pressure_status" : {
-      "units" : "No-units"
-    },
     "filter_differential_pressure_setpoint" : {
       "units" : "Bars",
       "value_state" : "applied"
@@ -11,6 +8,6 @@
       "units" : "Degrees-Celsius"
     }
   },
-  "timestamp" : "2024-11-06T17:34:01Z",
-  "version" : "1.5.2"
+  "timestamp" : "TIMESTAMP",
+  "version" : "1.5.3"
 }

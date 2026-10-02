@@ -10,10 +10,11 @@ import static com.google.udmi.util.Common.UDMI_TIMEVER_ENV;
 import static com.google.udmi.util.Common.UDMI_VERSION_ENV;
 import static com.google.udmi.util.Common.getNamespacePrefix;
 import static com.google.udmi.util.GeneralUtils.OBJECT_MAPPER_RAW;
-import static com.google.udmi.util.GeneralUtils.catchToTrue;
+import static com.google.udmi.util.GeneralUtils.deepCopy;
 import static com.google.udmi.util.GeneralUtils.friendlyStackTrace;
 import static com.google.udmi.util.GeneralUtils.getFileBytes;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
+import static com.google.udmi.util.GeneralUtils.ifNotNullGetElse;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifNullThen;
 import static com.google.udmi.util.GeneralUtils.isTrue;
@@ -23,6 +24,8 @@ import static com.google.udmi.util.JsonUtil.asMap;
 import static com.google.udmi.util.JsonUtil.convertTo;
 import static com.google.udmi.util.JsonUtil.convertToStrict;
 import static com.google.udmi.util.JsonUtil.loadFileRequired;
+import static com.google.udmi.util.JsonUtil.stringifyTerse;
+import static com.google.udmi.util.JsonUtil.writeFile;
 import static com.google.udmi.util.MessageUpgrader.METADATA_SCHEMA;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -30,15 +33,20 @@ import static java.util.Optional.ofNullable;
 import static java.util.stream.Collectors.toMap;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.util.ISO8601DateFormat;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.udmi.util.ExceptionMap.ExceptionCategory;
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.UncheckedIOException;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -69,8 +77,10 @@ public class SiteModel {
   public static final String DEFAULT_CLEARBLADE_HOSTNAME_FORMAT = "%s-mqtt.clearblade.com";
   public static final String DEFAULT_GBOS_HOSTNAME = "mqtt.bos.goog";
   public static final String MOCK_PROJECT = "mock-project";
+  public static final String MOCK_CLEAN = "mock-clean";
   public static final String LOCALHOST_HOSTNAME = "localhost";
   public static final String DEVICES_DIR = "devices";
+  public static final String TEMPLATES_DIR = "templates";
   public static final String REFLECTOR_DIR = "reflector";
   public static final String METADATA_JSON = "metadata.json";
   public static final String EXTRAS_DIR = "extras";
@@ -93,7 +103,7 @@ public class SiteModel {
   private static final Pattern MQTT_PATTERN = Pattern.compile("/r/(.*)/d/(.*)");
   private static final String CLOUD_IOT_CONFIG_JSON = "cloud_iot_config.json";
   private static final Pattern SPEC_PATTERN = Pattern.compile(
-      "(//([a-z]+)/)?(([a-z-]+))(/([a-z0-9]+))?(\\+([a-z0-9-]+))?");
+      "(//([a-z]+)/)?(([a-z0-9:@.-]+))(/([a-z0-9]+))?(\\+([a-z0-9-]+))?");
   private static final int SPEC_PROVIDER_GROUP = 2;
   private static final int SPEC_PROJECT_GROUP = SPEC_PROVIDER_GROUP + 2;
   private static final int SPEC_NAMESPACE_GROUP = SPEC_PROJECT_GROUP + 2;
@@ -101,6 +111,10 @@ public class SiteModel {
   private static final File CONFIG_OUT_DIR = new File("out/");
   private static final String RSA_PRIVATE_KEY = "rsa_private.pkcs8";
   private static final String EC_PRIVATE_KEY = "ec_private.pkcs8";
+  private static final Set<String> ALLOWED_FILES_IN_DEVICES_DIR = ImmutableSet.of(
+      "README.md"
+  );
+  private static final String TEMPLATE_KEY = "extend";
 
   private final String sitePath;
   private final Map<String, Object> siteDefaults;
@@ -113,6 +127,7 @@ public class SiteModel {
   public ExceptionMap siteMetadataExceptionMap;
   private boolean warningsAsErrors;
   private SiteMetadata siteMetadata;
+  private final Map<String, Map<String, Object>> allTemplates;
 
   public SiteModel(String specPath) {
     this(specPath, null, null);
@@ -137,6 +152,7 @@ public class SiteModel {
     exeConfig.site_model = new File(sitePath).getAbsolutePath();
     loadVersionInfo(exeConfig);
     siteDefaults = ofNullable(asMap(getSiteFile(SITE_DEFAULTS_FILE))).orElseGet(HashMap::new);
+    allTemplates = loadAllTemplates();
     if (overrides != null && overrides.project_id != null) {
       exeConfig.iot_provider = overrides.iot_provider;
       exeConfig.project_id = overrides.project_id;
@@ -150,7 +166,7 @@ public class SiteModel {
     File outFile = new File(CONFIG_OUT_DIR, format("%s_conf.json", toolName));
     System.err.println("Writing reconciled configuration file to " + outFile.getAbsolutePath());
     CONFIG_OUT_DIR.mkdirs();
-    JsonUtil.writeFile(executionConfiguration, outFile);
+    writeFile(executionConfiguration, outFile);
   }
 
   public SiteModel(ExecutionConfiguration executionConfiguration) {
@@ -191,18 +207,25 @@ public class SiteModel {
     EndpointConfiguration endpoint = new EndpointConfiguration();
     endpoint.client_id = getClientId(iotProject,
         executionConfig.cloud_region, getRegistryActual(executionConfig), deviceId);
-    endpoint.hostname = getEndpointHostname(executionConfig);
+    String host = getEndpointHostname(executionConfig);
+    if (host != null && host.contains(":")) {
+      int colonIndex = host.indexOf(":");
+      endpoint.port = Integer.parseInt(host.substring(colonIndex + 1));
+      host = host.substring(0, colonIndex);
+    }
+    endpoint.hostname = host;
     return endpoint;
   }
 
   private static String getEndpointHostname(ExecutionConfiguration executionConfig) {
     IotProvider iotProvider = ofNullable(executionConfig.iot_provider).orElse(IotProvider.IMPLICIT);
     return switch (iotProvider) {
+      case JWT -> requireNonNull(executionConfig.bridge_host, "missing bridge_host");
       case CLEARBLADE -> ifNotNullGet(executionConfig.cloud_region,
           region -> format(DEFAULT_CLEARBLADE_HOSTNAME_FORMAT, region),
           DEFAULT_CLEARBLADE_HOSTNAME);
       case GBOS -> DEFAULT_GBOS_HOSTNAME;
-      case IMPLICIT, DYNAMIC -> LOCALHOST_HOSTNAME;
+      case ZANZARA, IMPLICIT, DYNAMIC -> LOCALHOST_HOSTNAME;
       case MQTT -> requireNonNull(executionConfig.project_id, "missing project_id as hostname");
       default -> throw new RuntimeException("Unsupported iot_provider " + iotProvider);
     };
@@ -272,12 +295,26 @@ public class SiteModel {
       return ImmutableList.of();
     }
     String[] devices = requireNonNull(devicesDir.list());
-    return Arrays.stream(devices).filter(SiteModel::validDeviceDirectory)
+    return Arrays.stream(devices).filter(device -> validDeviceDirectory(devicesDir, device))
         .collect(Collectors.toList());
   }
 
-  private static boolean validDeviceDirectory(String dirName) {
-    return !(dirName.startsWith(".") || dirName.endsWith("~"));
+  private static boolean validDeviceDirectory(File baseDir, String dirName) {
+    File file = new File(baseDir, dirName);
+
+    if (!file.isDirectory()) {
+      if (ALLOWED_FILES_IN_DEVICES_DIR.contains(dirName)) {
+        return false;
+      }
+      throw new RuntimeException("Unexpected file in devices directory: " + file.getAbsolutePath());
+    }
+
+    if (dirName.startsWith(".") || dirName.endsWith("~")) {
+      System.err.println("Warning: Skipping invalid device directory: " + dirName);
+      return false;
+    }
+
+    return true;
   }
 
   public static String getRegistryActual(ExecutionConfiguration iotConfig) {
@@ -307,7 +344,16 @@ public class SiteModel {
       String iotProvider = specMatcher.group(SPEC_PROVIDER_GROUP);
       exeConfig.iot_provider = ifNotNullGet(iotProvider, IotProvider::fromValue);
       String matchedId = specMatcher.group(SPEC_PROJECT_GROUP);
-      exeConfig.project_id = NO_SITE.equals(matchedId) ? null : matchedId;
+      if (matchedId != null && matchedId.contains("@")) {
+        String[] parts = matchedId.split("@");
+        exeConfig.project_id = NO_SITE.equals(parts[0]) ? null : parts[0];
+        exeConfig.bridge_host = parts[1];
+      } else if (matchedId != null && matchedId.contains(":")) {
+        exeConfig.project_id = matchedId.substring(0, matchedId.indexOf(":"));
+        exeConfig.bridge_host = matchedId;
+      } else {
+        exeConfig.project_id = NO_SITE.equals(matchedId) ? null : matchedId;
+      }
       exeConfig.user_name = specMatcher.group(SPEC_USER_GROUP);
       exeConfig.udmi_namespace = specMatcher.group(SPEC_NAMESPACE_GROUP);
     } catch (Exception e) {
@@ -332,8 +378,20 @@ public class SiteModel {
     File devicesFile = getDevicesDir();
     File[] files = Objects.requireNonNull(devicesFile.listFiles(),
         "no files in " + devicesFile.getAbsolutePath());
-    return Arrays.stream(files).map(File::getName).filter(SiteModel::validDeviceDirectory)
-        .collect(Collectors.toSet());
+    return Arrays.stream(files).map(File::getName)
+        .filter(device -> validDeviceDirectory(devicesFile, device)).collect(Collectors.toSet());
+  }
+
+  public Set<String> getTemplateIds() {
+    requireNonNull(sitePath, "sitePath not defined");
+    File templatesDir = getTemplatesDir();
+    File[] files = templatesDir.listFiles();
+
+    return ifNotNullGetElse(files,
+        (templates) -> Arrays.stream(templates)
+            .filter(template -> template.getName().endsWith(".json"))
+            .map(template -> template.getName().split(".json")[0])
+            .collect(Collectors.toSet()), Collections::emptySet);
   }
 
   public SiteMetadata loadSiteMetadata() {
@@ -368,6 +426,14 @@ public class SiteModel {
 
       ObjectNode rawMetadata = loadFileRequired(ObjectNode.class, deviceMetadataFile);
       Map<String, Object> mergedMetadata = GeneralUtils.deepCopy(siteDefaults);
+      JsonNode usedTemplate = rawMetadata.remove(TEMPLATE_KEY);
+      if (usedTemplate != null) {
+        String templateName = usedTemplate.asText();
+        Map<String, Object> templateData = allTemplates.get(templateName);
+        requireNonNull(templateData, String.format("template %s not found in %s",
+            templateName, getTemplatesDir()));
+        GeneralUtils.mergeObject(mergedMetadata, templateData);
+      }
       GeneralUtils.mergeObject(mergedMetadata, asMap(rawMetadata));
 
       ObjectNode metadataObject = OBJECT_MAPPER_RAW.valueToTree(mergedMetadata);
@@ -406,6 +472,26 @@ public class SiteModel {
     allDevices = deviceIds.stream().collect(toMap(key -> key, this::newCloudModel));
   }
 
+  private Map<String, Map<String, Object>> loadAllTemplates() {
+    Set<String> templateIds = getTemplateIds();
+    return templateIds.stream().collect(toMap(id -> id, this::loadSingleTemplate));
+  }
+
+  /**
+   * Loads a single template, throwing an exception if it's not found or invalid.
+   */
+  private Map<String, Object> loadSingleTemplate(String templateId) {
+    File templateFile = getTemplateFile(templateId);
+    Map<String, Object> templateMap = asMap(templateFile);
+
+    if (templateMap == null) {
+      throw new UncheckedIOException(
+          new FileNotFoundException("Template file not found: " + templateFile.getAbsolutePath()));
+    }
+
+    return templateMap;
+  }
+
   private CloudModel newCloudModel(String deviceId) {
     return new CloudModel();
   }
@@ -426,12 +512,22 @@ public class SiteModel {
     return new File(new File(sitePath), "devices");
   }
 
+  public File getTemplatesDir() {
+    return new File(new File(sitePath), TEMPLATES_DIR);
+  }
+
   public File getDeviceFile(String deviceId, String path) {
     return new File(getDeviceDir(deviceId), path);
   }
 
+  public File getTemplateFile(String templateId) {
+    return new File(getTemplatesDir(), templateId + ".json");
+  }
+
   public Metadata getMetadata(String deviceId) {
-    return allMetadata.get(deviceId);
+    Metadata metadata = allMetadata.get(deviceId);
+    return metadata instanceof MetadataException exception
+        ? new MetadataException(exception) : deepCopy(metadata);
   }
 
   public Collection<CloudModel> allDevices() {
@@ -628,6 +724,29 @@ public class SiteModel {
     return isTrue(siteMetadata.strict_warnings);
   }
 
+  public void createNewDevice(String deviceId, Metadata metadata) {
+    updateMetadataRaw(deviceId, metadata);
+  }
+
+  public boolean updateMetadata(String deviceId, Metadata updateTo) {
+    Metadata current = allMetadata.get(deviceId);
+    String currentString = stringifyTerse(current);
+    String updateString = stringifyTerse(updateTo);
+    if (currentString.equals(updateString)) {
+      return false;
+    }
+    updateMetadataRaw(deviceId, updateTo);
+    return true;
+  }
+
+  private void updateMetadataRaw(String deviceId, Metadata metadata) {
+    File metadataFile = getDeviceFile(deviceId, METADATA_JSON);
+    System.err.println("Writing device metadata file " + metadataFile);
+    metadataFile.getParentFile().mkdirs();
+    writeFile(metadata, metadataFile);
+    allMetadata.put(deviceId, metadata);
+  }
+
   public static class MetadataException extends Metadata {
 
     public final File file;
@@ -636,6 +755,10 @@ public class SiteModel {
     public MetadataException(File deviceMetadataFile, Exception metadataException) {
       file = deviceMetadataFile;
       exception = metadataException;
+    }
+
+    public MetadataException(MetadataException orig) {
+      this(orig.file, orig.exception);
     }
   }
 

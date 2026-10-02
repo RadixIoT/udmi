@@ -1,5 +1,5 @@
 {
-  "$udmi_version": "1.5.2",
+  "$udmi_version": "1.5.7",
   "title": "Validation State",
   "description": "Validation state summary",
   "type": "object",
@@ -63,6 +63,12 @@
       "additionalProperties": false,
       "properties": {
         "correct_devices": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "pending_devices": {
           "type": "array",
           "items": {
             "type": "string"

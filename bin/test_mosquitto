@@ -1,7 +1,10 @@
 #!/bin/bash -eu
 
 UDMI_ROOT=$(dirname $0)/..
-cd $UDMI_ROOT
+# cd $UDMI_ROOT
+
+export MQTT_HOST=${MQTT_HOST:-localhost}
+export MQTT_PORT=${MQTT_PORT:-8883}
 
 source $UDMI_ROOT/etc/shell_common.sh
 
@@ -24,29 +27,31 @@ source $UDMI_ROOT/etc/mosquitto_ctrl.sh
 
 CLNT_USER=kiwi
 CLNT_PASS=possum
-CLNT_ID=$registry_id/client
+CLNT_ID=/uufi/$registry_id/client
 
-sudo chmod a+r $CERT_DIR/rsa_private.* || true
-bin/keygen CERT $CLIENT_DIR
+chmod a+r $CERT_DIR/rsa_private.* 2>/dev/null || true
+$UDMI_ROOT/bin/keygen CERT $CLIENT_DIR
 
-CLIENT_OPTS="-i $CLNT_ID -u $CLNT_USER -P $CLNT_PASS --cafile $CA_CERT --cert $CLIENT_DIR/rsa_private.crt --key $CLIENT_DIR/rsa_private.pem"
+CLIENT_OPTS="-h $MQTT_HOST -p $MQTT_PORT -i $CLNT_ID -u $CLNT_USER -P $CLNT_PASS --cafile $CA_CERT --cert $CLIENT_DIR/rsa_private.crt --key $CLIENT_DIR/rsa_private.pem"
 
 $MOSQUITTO_CTRL deleteClient $CLNT_USER
 $MOSQUITTO_CTRL createClient $CLNT_USER -p $CLNT_PASS -c $CLNT_ID
-$MOSQUITTO_CTRL addClientRole $CLNT_USER device
+$MOSQUITTO_CTRL addClientRole $CLNT_USER service
 
-killall mosquitto_sub || true
+echo "DEBUG: Listing all mosquitto_sub processes at start of test_mosquitto:"
+ps aux | grep mosquitto_sub | grep -v grep || echo "No active mosquitto_sub processes found."
 
 topic=/r/mqtt/d/test
 
 
 echo Subscribing to all topics in the background...
-mosquitto_sub $SERVER_OPTS -F "%t %p" -t '/r/+/d/+/#' > out/mosquitto.sub &
+$MOSQUITTO_SUB $SERVER_OPTS -F "%t %p" -t '/r/+/d/+/#' -t '/uufi/#' > out/mosquitto.sub &
+sub_pid=$!
 
 sleep 1
 
 echo Publishing test message
-mosquitto_pub $CLIENT_OPTS -t $topic -m "Hello Racket"
+$MOSQUITTO_PUB $CLIENT_OPTS -t $topic -m "Hello Racket"
 
 sleep 1
 
@@ -56,11 +61,21 @@ fgrep Racket out/mosquitto.sub || fail did not find expected message
 hash_pass=$(sha256sum < $site_path/devices/$device_id/rsa_private.pkcs8)
 dev_pass=${hash_pass:0:8}
 dev_id=/r/$registry_id/d/$device_id
-bin/mosquctl_client $dev_id $dev_pass
+$MOSQUITTO_CTRL deleteClient $dev_id || true
+role_name="role_${dev_id//\//_}"
+$MOSQUITTO_CTRL deleteRole $role_name || true
+$MOSQUITTO_CTRL createClient $dev_id -p $dev_pass -c $dev_id
+$MOSQUITTO_CTRL createRole $role_name
+$MOSQUITTO_CTRL addClientRole $dev_id $role_name
+$MOSQUITTO_CTRL addRoleACL $role_name subscribePattern "$dev_id/config" allow
+$MOSQUITTO_CTRL addRoleACL $role_name subscribePattern "$dev_id/commands" allow
+$MOSQUITTO_CTRL addRoleACL $role_name subscribePattern "$dev_id/errors" allow
+$MOSQUITTO_CTRL addRoleACL $role_name publishClientSend "$dev_id/events/#" allow
+$MOSQUITTO_CTRL addRoleACL $role_name publishClientSend "$dev_id/state" allow
 
 sleep 1
 
-cat <<EOF > /tmp/pubber_config.json
+cat <<EOF > out/pubber_config_test_mosquitto.json
 {
     "endpoint": {
       "protocol": "mqtt",
@@ -69,7 +84,7 @@ cat <<EOF > /tmp/pubber_config.json
       "hostname": "127.0.0.1",
       "topic_prefix": "/r/$registry_id/d/$device_id",
       "config_sync_sec": -1,
-      "port": 8883,
+      "port": $MQTT_PORT,
       "auth_provider": {
         "basic": {
           "username": "$dev_id",
@@ -88,26 +103,76 @@ EOF
 
 kill $(pgrep -f 'java.*pubber-.*jar') || true
 
-pubber/bin/build
+$UDMI_ROOT/pubber/bin/build
 
 # Clean out the persistant data store to ensure a clean state each time.
 rm -rf sites/udmi_site_model/out/devices/$device_id/persistent_data.json
 
 echo Publishing config to /r/$registry_id/d/$device_id/config
-mosquitto_pub $CLIENT_OPTS -r -t /r/$registry_id/d/$device_id/config -f $DEV_CONF
+$MOSQUITTO_PUB $CLIENT_OPTS -r -t /r/$registry_id/d/$device_id/config -f $DEV_CONF
 
 echo Running pubber smoke check
 # TODO: Replace this with proper smoke check when backend is working.
-timeout 20s pubber/bin/run /tmp/pubber_config.json || true
+timeout 30s $UDMI_ROOT/pubber/bin/run out/pubber_config_test_mosquitto.json || true
 
 echo Publishing ending test message
-mosquitto_pub $CLIENT_OPTS -t $topic -m "Hello Rudolph"
+$MOSQUITTO_PUB $CLIENT_OPTS -t $topic -m "Hello Rudolph"
 
-sleep 1
+echo "Waiting up to 20s for operational state message from pubber..."
+for i in {1..20}; do
+    operational_line=$(sed '/operational/!d;q' out/mosquitto.sub)
+    if [[ -n "$operational_line" ]]; then
+        echo "Found operational message."
+        break
+    fi
+    echo "Still waiting..."
+    sleep 1
+done
+
+if [[ -z "$operational_line" ]]; then
+    fail "FATAL: Timed out waiting for operational state message."
+fi
+
+echo "Testing site_trigger utility..."
+# Back up metadata.json
+cp sites/udmi_site_model/devices/AHU-1/metadata.json sites/udmi_site_model/devices/AHU-1/metadata.json.bak
+
+# Set up cleanup trap for metadata.json
+trap 'mv sites/udmi_site_model/devices/AHU-1/metadata.json.bak sites/udmi_site_model/devices/AHU-1/metadata.json 2>/dev/null || true' EXIT
+
+# Run site_trigger
+bin/site_trigger update sites/udmi_site_model AHU-1 system v2 "mqtts://${CLNT_USER}:${CLNT_PASS}@${MQTT_HOST}:${MQTT_PORT}"
+
+# Verify file was updated on disk
+updated_version=$(jq -r '.system.software.system' sites/udmi_site_model/devices/AHU-1/metadata.json)
+if [[ "$updated_version" != "v2" ]]; then
+    fail "site_trigger failed to update metadata.json on disk"
+fi
+
+# Wait for message to be received by the subscriber
+sleep 2
+
+# Verify message was published and received
+fgrep site_trigger out/mosquitto.sub || fail "did not find expected site_trigger message in out/mosquitto.sub"
+
+# Restore metadata.json and clear trap
+mv sites/udmi_site_model/devices/AHU-1/metadata.json.bak sites/udmi_site_model/devices/AHU-1/metadata.json
+trap - EXIT
+
+echo "site_trigger test successful!"
 
 echo Cleanup subscribers and clients...
-killall mosquitto_sub || true
-bin/mosquctl_client $dev_id --
+echo "DEBUG: Listing all mosquitto_sub processes before target kill:"
+ps aux | grep mosquitto_sub | grep -v grep || echo "No active mosquitto_sub processes found."
+
+kill $sub_pid || true
+
+echo "DEBUG: Listing all mosquitto_sub processes after target kill:"
+ps aux | grep mosquitto_sub | grep -v grep || echo "No active mosquitto_sub processes found."
+
+$MOSQUITTO_CTRL deleteClient $dev_id || true
+role_name="role_${dev_id//\//_}"
+$MOSQUITTO_CTRL deleteRole $role_name || true
 
 echo Received messages:
 cat out/mosquitto.sub | cut -c -120
@@ -116,8 +181,8 @@ echo Checking received end message
 fgrep Rudolph out/mosquitto.sub || fail did not find expected message
 
 echo Checking messages for matching serial no $serial_no
-received_no=$(fgrep operational out/mosquitto.sub | head -n 1 | sed -E 's/^[^{]+//' | jq -r .system.serial_no)
-received_topic=$(fgrep operational out/mosquitto.sub | head -n 1 | awk '{ print $1 }')
+received_no=$(echo "$operational_line" | sed -E 's/^[^{]+//' | jq -r .system.serial_no)
+received_topic=$(fgrep -m 1 operational out/mosquitto.sub | awk '{ print $1 }')
 [[ -z $received_topic ]] && fail No matching receive message found.
 
 expected_topic=/r/$registry_id/d/$device_id/state
@@ -125,5 +190,5 @@ expected_topic=/r/$registry_id/d/$device_id/state
 
 [[ $received_no != $serial_no ]] && fail Mismatched/missing serial no: $received_no != $serial_no
 
-echo export MQTT_TEST_BROKER=tcp://localhost:8883
+echo export MQTT_TEST_BROKER=tcp://${MQTT_HOST}:${MQTT_PORT}
 echo Done with mosquitto pubber check.

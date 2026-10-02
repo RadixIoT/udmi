@@ -15,12 +15,6 @@ import com.fasterxml.jackson.annotation.JsonValue;
  * 
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonPropertyOrder({
-    "families",
-    "devices",
-    "points",
-    "features"
-})
 public class Enumerations {
 
     @JsonProperty("families")
@@ -58,8 +52,11 @@ public class Enumerations {
 
         BUCKETS("buckets"),
         ENTRIES("entries"),
+        PARTS("parts"),
+        SYSTEM("system"),
+        REFS("refs"),
         DETAILS("details"),
-        PARTS("parts");
+        TRACE("trace");
         private final String value;
         private final static Map<String, Enumerations.Depth> CONSTANTS = new HashMap<String, Enumerations.Depth>();
 

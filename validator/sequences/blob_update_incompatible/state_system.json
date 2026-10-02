@@ -1,0 +1,27 @@
+{
+  "hardware" : {
+    "make" : "BOS",
+    "model" : "pubber"
+  },
+  "last_config" : "TIMESTAMP",
+  "operation" : {
+    "last_start" : "TIMESTAMP",
+    "mode" : "initial",
+    "operational" : true,
+    "restart_count" : 1
+  },
+  "serial_no" : "sequencer-10987",
+  "software" : {
+    "firmware" : "v1",
+    "system" : "v1"
+  },
+  "status" : {
+    "category" : "blobset.blob.parse",
+    "detail" : "udmi.lib.base.UdmiException: Simulated incompatibility for system;",
+    "level" : 500,
+    "message" : "Simulated incompatibility for system",
+    "timestamp" : "TIMESTAMP"
+  },
+  "timestamp" : "TIMESTAMP",
+  "version" : "1.5.3"
+}

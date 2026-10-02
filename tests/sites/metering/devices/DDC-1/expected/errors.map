@@ -1,0 +1,2 @@
+Exceptions for DDC-1
+  invalid modbus adjunct key 'bits'; allowed keys are [protocol, device, baud, parity, data_bits, stop_bits]

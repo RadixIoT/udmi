@@ -1,5 +1,5 @@
 {
-  "$udmi_version": "1.5.2",
+  "$udmi_version": "1.5.7",
   "title": "Device Persistent",
   "description": "Device persistent data",
   "additionalProperties": true,
@@ -9,6 +9,10 @@
     },
     "restart_count": {
       "type": "integer"
+    },
+    "applied_blobs": {
+      "type": "object",
+      "existingJavaType": "java.util.HashMap<String, String>"
     }
   }
 }

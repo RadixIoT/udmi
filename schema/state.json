@@ -1,5 +1,5 @@
 {
-  "$udmi_version": "1.5.2",
+  "$udmi_version": "1.5.7",
   "title": "State",
   "$section": "Messages",
   "type": "object",
@@ -40,6 +40,9 @@
     },
     "blobset": {
       "$ref": "file:state_blobset.json#"
+    },
+    "alarmset": {
+      "$ref": "file:state_alarmset.json#"
     },
     "pointset": {
       "$ref": "file:state_pointset.json#"

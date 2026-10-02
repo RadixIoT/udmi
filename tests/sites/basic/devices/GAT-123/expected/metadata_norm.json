@@ -10,11 +10,23 @@
       "SNS-8"
     ]
   },
-  "hash": "6bdf3f23",
   "localnet": {
     "families": {
       "vendor": {
         "addr": "20231"
+      }
+    },
+    "networks": {
+      "modbus_rtu_1": {
+        "adjunct": {
+          "baud": "9600",
+          "data_bits": "8",
+          "device": "COM1",
+          "parity": "none",
+          "protocol": "RTU",
+          "stop_bits": "1"
+        },
+        "family": "modbus"
       }
     }
   },
@@ -42,6 +54,5 @@
     }
   },
   "timestamp": "2020-05-01T13:39:07Z",
-  "upgraded_from": "1.5.2",
-  "version": "1.5.3"
+  "version": "1.5.7"
 }

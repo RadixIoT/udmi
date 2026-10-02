@@ -1,0 +1,10 @@
+{
+  "blobs" : {
+    "system" : {
+      "generation" : "TIMESTAMP",
+      "phase" : "final",
+      "sha256" : "@@@blob data hash###0000000000000000000000000000000000000000000000000000000000000000",
+      "url" : "@@@software data###data:application/json;base64,eyJ2ZXJzaW9uIjoidjIifQ=="
+    }
+  }
+}

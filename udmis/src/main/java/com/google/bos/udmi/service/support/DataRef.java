@@ -3,6 +3,7 @@ package com.google.bos.udmi.service.support;
 import static java.lang.String.format;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Container reference class for a database entry.
@@ -39,9 +40,18 @@ public abstract class DataRef {
 
   public abstract String get(String key);
 
+  public String getAsSerializable(String key) {
+    return get(key);
+  }
+
   public abstract AutoCloseable lock();
 
   public abstract void put(String key, String value);
+
+  public abstract void update(Map<String, String> puts, Set<String> deletes);
+
+  public abstract boolean updateIfMatch(String matchKey, String expectedValue,
+      Map<String, String> puts, Set<String> deletes);
 
   /**
    * Add a registry specification.

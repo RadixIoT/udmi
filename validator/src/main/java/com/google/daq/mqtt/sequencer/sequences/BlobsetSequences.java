@@ -1,27 +1,44 @@
 package com.google.daq.mqtt.sequencer.sequences;
 
 import static com.google.common.base.Strings.isNullOrEmpty;
+import static com.google.daq.mqtt.sequencer.sequences.BlobsetSequences.ExpectedLog.expectLog;
 import static com.google.daq.mqtt.util.TimePeriodConstants.THREE_MINUTES_MS;
 import static com.google.daq.mqtt.util.TimePeriodConstants.TWO_MINUTES_MS;
 import static com.google.udmi.util.GeneralUtils.encodeBase64;
+import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
+import static com.google.udmi.util.GeneralUtils.ifTrueGet;
+import static com.google.udmi.util.GeneralUtils.ifTrueThen;
 import static com.google.udmi.util.GeneralUtils.sha256;
+import static com.google.udmi.util.JsonUtil.getNowInstant;
+import static com.google.udmi.util.JsonUtil.isoConvert;
 import static com.google.udmi.util.JsonUtil.stringify;
 import static java.lang.String.format;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
 import static udmi.schema.Bucket.ENDPOINT_CONFIG;
 import static udmi.schema.Bucket.SYSTEM_MODE;
+import static udmi.schema.Bucket.SYSTEM_SOFTWARE_UPDATES;
 import static udmi.schema.Category.BLOBSET_BLOB_APPLY;
-import static udmi.schema.FeatureDiscovery.FeatureStage.ALPHA;
+import static udmi.schema.Category.BLOBSET_BLOB_FETCH;
+import static udmi.schema.Category.BLOBSET_BLOB_PARSE;
+import static udmi.schema.Category.BLOBSET_BLOB_RECEIVE;
 import static udmi.schema.FeatureDiscovery.FeatureStage.PREVIEW;
 
+import com.google.daq.mqtt.sequencer.DefaultLogLevel;
 import com.google.daq.mqtt.sequencer.Feature;
 import com.google.daq.mqtt.sequencer.SequenceBase;
 import com.google.daq.mqtt.sequencer.Summary;
 import com.google.daq.mqtt.sequencer.ValidateSchema;
 import com.google.daq.mqtt.sequencer.semantic.SemanticDate;
 import com.google.daq.mqtt.sequencer.semantic.SemanticValue;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import org.junit.Before;
 import org.junit.Test;
 import udmi.schema.Auth_provider;
@@ -29,6 +46,7 @@ import udmi.schema.Basic;
 import udmi.schema.BlobBlobsetConfig;
 import udmi.schema.BlobBlobsetConfig.BlobPhase;
 import udmi.schema.BlobBlobsetState;
+import udmi.schema.BlobUpdateTestingModel;
 import udmi.schema.BlobsetConfig;
 import udmi.schema.BlobsetConfig.SystemBlobsets;
 import udmi.schema.EndpointConfiguration;
@@ -40,12 +58,12 @@ import udmi.schema.IotAccess.IotProvider;
 import udmi.schema.Level;
 import udmi.schema.Operation.SystemMode;
 
-
 /**
  * Validation tests for instances that involve blobset config messages.
  */
-
 public class BlobsetSequences extends SequenceBase {
+
+
 
   public static final String JSON_MIME_TYPE = "application/json";
   public static final String DATA_URL_FORMAT = "data:%s;base64,%s";
@@ -54,13 +72,10 @@ public class BlobsetSequences extends SequenceBase {
       "projects/%s/locations/%s/registries/%s/devices/%s";
   private static final String LOCAL_CLIENT_ID_FMT = "/r/%s/d/%s";
   private static final String BOGUS_ENDPOINT_HOSTNAME = "twiddily.fiddily.fog";
+  public static final String BOGUS_REGISTRY = "BOGUS_REGISTRY";
 
   private static boolean isMqttProvider() {
     return exeConfig.iot_provider == IotProvider.MQTT;
-  }
-
-  public void setReturnRedirectEndpointBlob() {
-    setDeviceConfigEndpointBlob(getAlternateEndpointHostname(), altRegistry, false);
   }
 
   @Override
@@ -84,6 +99,7 @@ public class BlobsetSequences extends SequenceBase {
     EndpointConfiguration endpointConfiguration = new EndpointConfiguration();
     endpointConfiguration.protocol = Protocol.MQTT;
     endpointConfiguration.hostname = hostname;
+    endpointConfiguration.port = getAlternateEndpointPort();
     endpointConfiguration.client_id = generateEndpointConfigClientId(registryId);
     if (isMqttProvider()) {
       endpointConfiguration.topic_prefix = endpointConfiguration.client_id;
@@ -99,23 +115,28 @@ public class BlobsetSequences extends SequenceBase {
 
   private void untilClearedRedirect() {
     deviceConfig.blobset.blobs.remove(IOT_BLOB_KEY);
-    untilTrue("endpoint config blobset state not defined", () -> deviceState.blobset == null
-        || deviceState.blobset.blobs.get(IOT_BLOB_KEY) == null);
+    untilTrue("endpoint config blobset state not defined",
+        () -> deviceState.blobset == null || deviceState.blobset.blobs.get(IOT_BLOB_KEY) == null);
   }
 
   private void untilSuccessfulRedirect(BlobPhase blobPhase) {
+    untilCompletedRedirect(blobPhase, false);
+  }
+
+  private void untilCompletedRedirect(BlobPhase blobPhase, boolean expectFailure) {
     // This case is tracking the initial apply of a redirect, so it sets up the mirror config.
     if (blobPhase == BlobPhase.APPLY) {
       mirrorToOtherConfig();
     }
-    untilTrue(format("blobset phase is %s and stateStatus is null", blobPhase), () -> {
+    String prefix = ifTrueGet(expectFailure, "not ", "");
+    untilTrue(format("blobset phase is %s and stateStatus is %snull", blobPhase, prefix), () -> {
       BlobBlobsetState blobBlobsetState = deviceState.blobset.blobs.get(IOT_BLOB_KEY);
       BlobBlobsetConfig blobBlobsetConfig = deviceConfig.blobset.blobs.get(IOT_BLOB_KEY);
-      // Successful reconnect sends a state message with empty Entry.
-      Entry blobStateStatus = blobBlobsetState.status;
+      // Successful reconnect sends a state message with empty Entry, error will have status.
+      boolean statusError = blobBlobsetState.status != null;
       return blobPhase.equals(blobBlobsetState.phase)
           && blobBlobsetConfig.generation.equals(blobBlobsetState.generation)
-          && blobStateStatus == null;
+          && statusError == expectFailure;
     });
 
     // This case is tracking the finalization of the redirect, so clear out the non-used one.
@@ -204,7 +225,7 @@ public class BlobsetSequences extends SequenceBase {
     untilClearedRedirect();
   }
 
-  @Feature(stage = ALPHA, bucket = ENDPOINT_CONFIG)
+  @Feature(stage = PREVIEW, bucket = ENDPOINT_CONFIG)
   @Summary("Failed connection because of bad hash.")
   @ValidateSchema(SubFolder.BLOBSET)
   @Test(timeout = TWO_MINUTES_MS)
@@ -222,17 +243,34 @@ public class BlobsetSequences extends SequenceBase {
     });
   }
 
+  private boolean hasBackupStateUpdate(HashMap<String, CaptureMap> captureMaps) {
+    List<Map<String, Object>> stateUpdates = captureMaps.get(getDeviceId())
+        .get(STATE_UPDATE_MESSAGE_TYPE);
+    return ifNotNullGet(stateUpdates, updates -> updates.stream().anyMatch(this::isBackupSource),
+        false);
+  }
+
+  @Feature(stage = PREVIEW, bucket = ENDPOINT_CONFIG)
+  @Summary("Failed connection never uses alternate registry.")
+  @ValidateSchema(SubFolder.BLOBSET)
+  @Test(timeout = TWO_MINUTES_MS)
+  public void endpoint_connection_bad_alternate() {
+    HashMap<String, CaptureMap> capture = check_endpoint_connection_success(false, true);
+    assertTrue("no backup state update", hasBackupStateUpdate(capture));
+  }
+
   @Test(timeout = TWO_MINUTES_MS)
   @Feature(stage = PREVIEW, bucket = ENDPOINT_CONFIG)
   @Summary("Check connection to an alternate project.")
   public void endpoint_connection_success_alternate() {
-    check_endpoint_connection_success(false);
+    HashMap<String, CaptureMap> capture = check_endpoint_connection_success(false, false);
+    assertFalse("found backup state update", hasBackupStateUpdate(capture));
   }
 
   @Test(timeout = THREE_MINUTES_MS)
   @Feature(stage = PREVIEW, bucket = ENDPOINT_CONFIG)
   public void endpoint_redirect_and_restart() {
-    check_endpoint_connection_success(true);
+    check_endpoint_connection_success(true, false);
   }
 
   @Test(timeout = TWO_MINUTES_MS)
@@ -244,17 +282,31 @@ public class BlobsetSequences extends SequenceBase {
     untilClearedRedirect();
   }
 
-  private void check_endpoint_connection_success(boolean doRestart) {
+  private HashMap<String, CaptureMap> check_endpoint_connection_success(boolean doRestart,
+      boolean useInvalidRegistry) {
     // Phase one: initiate connection to alternate registry.
     waitUntil("initial last_config matches config timestamp", this::lastConfigUpdated);
-    setDeviceConfigEndpointBlob(getAlternateEndpointHostname(), altRegistry, false);
-    untilSuccessfulRedirect(BlobPhase.APPLY);
 
-    withAlternateClient(() -> {
+    String useRegistry = useInvalidRegistry ? BOGUS_REGISTRY : altRegistry;
+    setDeviceConfigEndpointBlob(getAlternateEndpointHostname(), useRegistry, false);
+
+    BlobPhase endPhase = useInvalidRegistry ? BlobPhase.FINAL : BlobPhase.APPLY;
+    untilCompletedRedirect(endPhase, useInvalidRegistry);
+
+    // Flush now to only preserve messages during alternate client interval.
+    flushCapturedMessages();
+
+    withAlternateClient(useInvalidRegistry, () -> {
       // Phase two: verify connection to alternate registry.
-      untilSuccessfulRedirect(BlobPhase.FINAL);
-      waitUntil("alternate last_config matches config timestamp",
-          this::lastConfigUpdated);
+      untilCompletedRedirect(BlobPhase.FINAL, useInvalidRegistry);
+
+      if (useInvalidRegistry) {
+        // This will never be valid, so wait a bit to ensure it's had time to process the error.
+        waitDuration("alternate client connect delay", Duration.ofSeconds(10));
+        return;
+      }
+
+      waitUntil("alternate last_config matches config timestamp", this::lastConfigUpdated);
       untilClearedRedirect();
 
       if (doRestart) {
@@ -268,17 +320,30 @@ public class BlobsetSequences extends SequenceBase {
       untilSuccessfulRedirect(BlobPhase.APPLY);
     });
 
+    HashMap<String, CaptureMap> messages = flushCapturedMessages();
+
+    ifTrueThen(useInvalidRegistry,
+        () -> setDeviceConfigEndpointBlob(getAlternateEndpointHostname(), registryId, false));
+
     // Phase four: verify restoration of initial registry connection.
     whileDoing("restoring main connection", () -> {
       untilSuccessfulRedirect(BlobPhase.FINAL);
       waitUntil("restored last_config matches config timestamp", this::lastConfigUpdated);
       untilClearedRedirect();
     });
+
+    return messages;
+  }
+
+  private void waitDuration(String reason, Duration duration) {
+    Instant endTime = getNowInstant().plus(duration);
+    String waitingMessage = "waiting until " + isoConvert(endTime);
+    waitUntil(reason, () -> ifTrueGet(getNowInstant().isBefore(endTime), waitingMessage));
   }
 
   @Test
   @Summary("Restart and connect to same endpoint and expect it returns.")
-  @Feature(stage = ALPHA, bucket = SYSTEM_MODE)
+  @Feature(stage = PREVIEW, bucket = SYSTEM_MODE)
   public void system_mode_restart() {
     check_system_restart();
   }
@@ -331,4 +396,193 @@ public class BlobsetSequences extends SequenceBase {
     untilTrue("last_start is newer than previous last_start",
         () -> deviceConfig.system.operation.last_start.after(last_start));
   }
+
+  private BlobUpdateTestingModel getUpdateTarget(String targetType) {
+    ifTrueSkipTest(
+        deviceMetadata.testing == null || deviceMetadata.testing.blob_update_targets == null,
+        "No blob update targets defined in metadata");
+    BlobUpdateTestingModel target = deviceMetadata.testing.blob_update_targets.get(targetType);
+    ifNullSkipTest(target, "No blob update target defined for type '" + targetType + "'");
+    return target;
+  }
+
+  private void setDeviceConfigSoftwareBlob(String blobName, String url, String sha256) {
+    BlobBlobsetConfig config = new BlobBlobsetConfig();
+    config.url = SemanticValue.describe("software data", url);
+    config.phase = BlobPhase.FINAL;
+    config.generation = SemanticDate.describe("blob generation", new Date());
+    config.sha256 = SemanticValue.describe("blob data hash", sha256);
+
+    BlobsetConfig blobset = new BlobsetConfig();
+    blobset.blobs = new HashMap<>();
+    blobset.blobs.put(blobName, config);
+    deviceConfig.blobset = blobset;
+  }
+
+  private String executeBlobUpdate(BlobUpdateTestingModel target, ExpectedLog... expectedLogs) {
+    String blobName = target.blob_name;
+    String url = target.url;
+    String sha256 = target.sha256;
+
+    setDeviceConfigSoftwareBlob(blobName, url, sha256);
+    updateConfig("trigger blob update for " + blobName);
+
+    for (ExpectedLog expectation : expectedLogs) {
+      expectation.level().ifPresentOrElse(
+          level -> waitForLog(expectation.category(), level),
+          ()  -> waitForLog(expectation.category())
+      );
+    }
+
+    untilTrue(blobName + " phase transitions", () -> {
+      BlobBlobsetState blobBlobsetState = deviceState.blobset.blobs.get(blobName);
+      return blobBlobsetState != null && (BlobPhase.APPLY.equals(blobBlobsetState.phase)
+          || BlobPhase.FINAL.equals(blobBlobsetState.phase));
+    });
+
+    untilTrue(blobName + " phase is FINAL", () -> {
+      BlobBlobsetState blobBlobsetState = deviceState.blobset.blobs.get(blobName);
+      return blobBlobsetState != null && BlobPhase.FINAL.equals(blobBlobsetState.phase);
+    });
+
+    return blobName;
+  }
+
+  /**
+   * Expected log category with (optional) level.
+   */
+  public record ExpectedLog(String category, Optional<Level> level) {
+
+    public static ExpectedLog expectLog(String category) {
+      return new ExpectedLog(category, Optional.empty());
+    }
+
+    public static ExpectedLog expectLog(String category, Level level) {
+      return new ExpectedLog(category, Optional.of(level));
+    }
+  }
+
+  private void verifyBlobUpdateSequence(BlobUpdateTestingModel target, boolean expectSuccess,
+      ExpectedLog... expectedLogs) {
+    info(format("Testing blob update for blob key %s, version %s", target.blob_name,
+        target.version));
+
+    String blobName = executeBlobUpdate(target, expectedLogs);
+
+    BlobBlobsetState blobBlobsetState = deviceState.blobset.blobs.get(blobName);
+
+    if (expectSuccess) {
+      checkThat(blobName + " state is success", () -> blobBlobsetState.status == null);
+      checkThat(blobName + " software version reflects update", () -> {
+        String softwareVersion = deviceState.system.software.get(blobName);
+        return target.version.equals(softwareVersion);
+      });
+    } else {
+      checkThat(blobName + " state indicates error", () ->
+          blobBlobsetState.status != null && blobBlobsetState.status.level >= Level.ERROR.value());
+    }
+  }
+
+  private void verifyBlobUpdateSequence(String targetType, boolean expectSuccess,
+      ExpectedLog... expectedLogs) {
+    verifyBlobUpdateSequence(getUpdateTarget(targetType), expectSuccess, expectedLogs);
+  }
+
+  @Test(timeout = TWO_MINUTES_MS)
+  @Feature(stage = PREVIEW, bucket = SYSTEM_SOFTWARE_UPDATES)
+  @Summary("Validates a successful blob update where the device fetches, applies, "
+      + "and reports the new version.")
+  @DefaultLogLevel(Level.DEBUG)
+  public void blob_update_success() {
+    verifyBlobUpdateSequence("success", true,
+        expectLog(BLOBSET_BLOB_RECEIVE),
+        expectLog(BLOBSET_BLOB_FETCH),
+        expectLog(BLOBSET_BLOB_APPLY));
+  }
+
+  @Test(timeout = TWO_MINUTES_MS)
+  @Feature(stage = PREVIEW, bucket = SYSTEM_SOFTWARE_UPDATES)
+  @Summary("Validates tamper protection by providing a valid URL but an incorrect SHA-256 hash.")
+  @DefaultLogLevel(Level.DEBUG)
+  public void blob_update_invalid_hash() {
+    verifyBlobUpdateSequence("fail_hash", false,
+        expectLog(BLOBSET_BLOB_RECEIVE),
+        expectLog(BLOBSET_BLOB_FETCH),
+        expectLog(BLOBSET_BLOB_PARSE, Level.ERROR));
+  }
+
+  @Test(timeout = TWO_MINUTES_MS)
+  @Feature(stage = PREVIEW, bucket = SYSTEM_SOFTWARE_UPDATES)
+  @Summary("Validates network resilience by providing an unreachable or 404 URL.")
+  @DefaultLogLevel(Level.DEBUG)
+  public void blob_update_unreachable_url() {
+    verifyBlobUpdateSequence("fail_fetch", false,
+        expectLog(BLOBSET_BLOB_RECEIVE),
+        expectLog(BLOBSET_BLOB_FETCH),
+        expectLog(BLOBSET_BLOB_FETCH, Level.ERROR));
+  }
+
+  @Test(timeout = TWO_MINUTES_MS)
+  @Feature(stage = PREVIEW, bucket = SYSTEM_SOFTWARE_UPDATES)
+  @Summary("Validates format and signature checking by providing a dummy payload.")
+  @DefaultLogLevel(Level.DEBUG)
+  public void blob_update_invalid_payload() {
+    verifyBlobUpdateSequence("fail_parse", false,
+        expectLog(BLOBSET_BLOB_RECEIVE),
+        expectLog(BLOBSET_BLOB_FETCH),
+        expectLog(BLOBSET_BLOB_PARSE, Level.ERROR));
+  }
+
+  @Test(timeout = TWO_MINUTES_MS)
+  @Feature(stage = PREVIEW, bucket = SYSTEM_SOFTWARE_UPDATES)
+  @Summary("Validates reporting of incompatibility for a blob update.")
+  @DefaultLogLevel(Level.DEBUG)
+  public void blob_update_incompatible() {
+    verifyBlobUpdateSequence("fail_incompatible", false,
+        expectLog(BLOBSET_BLOB_RECEIVE),
+        expectLog(BLOBSET_BLOB_FETCH),
+        expectLog(BLOBSET_BLOB_PARSE, Level.ERROR));
+  }
+
+  @Test(timeout = TWO_MINUTES_MS)
+  @Feature(stage = PREVIEW, bucket = SYSTEM_SOFTWARE_UPDATES)
+  @Summary("Validates reporting of an oversized payload fetch failure.")
+  @DefaultLogLevel(Level.DEBUG)
+  public void blob_update_oversize() {
+    verifyBlobUpdateSequence("fail_oversize", false,
+        expectLog(BLOBSET_BLOB_RECEIVE),
+        expectLog(BLOBSET_BLOB_FETCH),
+        expectLog(BLOBSET_BLOB_FETCH, Level.ERROR));
+  }
+
+
+  @Test(timeout = TWO_MINUTES_MS)
+  @Feature(stage = PREVIEW, bucket = SYSTEM_SOFTWARE_UPDATES)
+  @Summary("Validates that a previously applied blob config is not reapplied.")
+  @DefaultLogLevel(Level.DEBUG)
+  public void blob_update_idempotency() {
+    // Standard successful update
+    verifyBlobUpdateSequence("success", true,
+        expectLog(BLOBSET_BLOB_RECEIVE),
+        expectLog(BLOBSET_BLOB_FETCH),
+        expectLog(BLOBSET_BLOB_APPLY)
+    );
+
+    // Resend the exact same config
+    final BlobUpdateTestingModel target = getUpdateTarget("success");
+    updateConfig("trigger redundant update to check for idempotency");
+
+    sleepFor("waiting for device to process update", Duration.ofSeconds(10));
+
+    // No new lifecycle logs should have been emitted
+    checkWasNotLogged(BLOBSET_BLOB_RECEIVE, Level.DEBUG);
+    checkWasNotLogged(BLOBSET_BLOB_FETCH, Level.DEBUG);
+    checkWasNotLogged(BLOBSET_BLOB_APPLY, Level.INFO);
+
+    untilTrue(target.blob_name + " phase is FINAL", () -> {
+      BlobBlobsetState blobState = deviceState.blobset.blobs.get(target.blob_name);
+      return blobState != null && BlobPhase.FINAL.equals(blobState.phase);
+    });
+  }
+
 }

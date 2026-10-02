@@ -11,11 +11,21 @@ Many tools take a [project spec](project_spec.md) as the second argument.
 - [pagent](pagent.md) - a tool for automated cloud provisioning of devices (GCP)
 - [pubber](pubber.md) - a sample implementation of a client-side 'device' that implements the UDMI schema
 - [registrar](registrar.md) - a utility to register and updates devices in Cloud IoT Core (GCP)
+- [registrar_service](registrar_service.md) - a wrapper on top of the registrar utility to enable automated triggering of registrar on source repo updates
 - [reset_config](reset_config.md) - a utility to send a config messages to devices
 - [sequencer](sequencer.md) - a utility to validate device [sequences](../specs/sequences/) (GCP)
 - [validator](validator.md) - a utility for validating messages (GCP)
 - [gittools](gittools.md) - collection of utilities for working with git branches
 - [gcloud](gcloud.md) - various tips and tricks for working with gcloud on GCP
+- [bambi backend service](bambi_service.md) - a service to use Google Sheets as an interface to manage updates to the site model source repository 
+- [bambi workflow](bambi_flow.md) - a step-by-step breakdown and sequence diagram of the BAMBI site model update process
+- [reconciler_service](reconciler_service.md) - a service to automatically open pull requests from proposal branches in the source repository
+- [mantis](mantis.md) - an AI agent that answers UDMI questions and diagnoses sequencer test failures
+- [workbench](workbench.md) - a local web application for running sequencer tests, reviewing results, and triaging failures with Mantis
+- [spotter](spotter.md) - reference edge agent for OT network discovery, BACnet/Ether enumeration, ephemeral PCAP streaming, and host telemetry
+- [udmi local orchestrator](udmi_tools.md) - unified CLI for managing local UDMI infrastructure services and namespaced environments
+- [tmux controllers](tmux.md) - modular tmux controllers for individual local service domains (barbican, butler, bridgehead, base, mcp)
+
 
 ## Setup
 

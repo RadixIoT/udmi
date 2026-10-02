@@ -8,6 +8,7 @@ import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifNotTrueGet;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
+import static com.google.udmi.util.GeneralUtils.isNumericString;
 import static com.google.udmi.util.GeneralUtils.prefixedDifference;
 import static com.google.udmi.util.JsonUtil.isoConvert;
 import static com.google.udmi.util.JsonUtil.stringifyTerse;
@@ -140,6 +141,7 @@ public class PointsetSequences extends PointsetBase {
   @Summary("Check that pointset state does not report an unconfigured point")
   @Feature(stage = STABLE, bucket = POINTSET)
   public void pointset_remove_point() {
+    deviceConfig.pointset.sample_rate_sec = 10;
     untilPointsetSanity();
 
     List<String> candidatePoints = new ArrayList<>(deviceConfig.pointset.points.keySet());
@@ -173,9 +175,41 @@ public class PointsetSequences extends PointsetBase {
   @ValidateSchema(SubFolder.POINTSET)
   public void pointset_publish() {
     ifNullSkipTest(deviceConfig.pointset, "no pointset found in config");
-
+    deviceConfig.pointset.sample_rate_sec = 10;
     untilTrue("receive a pointset event",
         () -> (countReceivedEvents(PointsetEvents.class) > 1));
+  }
+
+  /**
+   * Check that numerical values in pointset payloads are reported as JSON numbers
+   * and not strings.
+   */
+  @Test(timeout = TWO_MINUTES_MS)
+  @Summary(
+      "Check that numerical values in pointset payloads are reported as JSON numbers and not"
+          + " strings")
+  @Feature(stage = STABLE, bucket = POINTSET, nostate = true)
+  @ValidateSchema(SubFolder.POINTSET)
+  public void pointset_numeric_values() {
+    ifNullSkipTest(deviceConfig.pointset, "no pointset found in config");
+    deviceConfig.pointset.sample_rate_sec = 10;
+    untilTrue("receive a pointset event",
+        () -> (countReceivedEvents(PointsetEvents.class) > 0));
+    List<PointsetEvents> events = popReceivedEvents(PointsetEvents.class);
+    for (PointsetEvents event : events) {
+      if (event.points == null) {
+        continue;
+      }
+      for (Entry<String, PointPointsetEvents> pointEntry : event.points.entrySet()) {
+        Object presentValue = pointEntry.getValue().present_value;
+        if (presentValue instanceof String stringValue) {
+          checkThat(
+              format("Point %s present_value '%s' is reported as JSON number, not string",
+                  pointEntry.getKey(), stringValue),
+              () -> !isNumericString(stringValue));
+        }
+      }
+    }
   }
 
   /**
@@ -242,7 +276,7 @@ public class PointsetSequences extends PointsetBase {
 
     popReceivedEvents(PointsetEvents.class);
     untilTrue(format("receive at least %d pointset events", messagesToSample),
-        () -> (countReceivedEvents(PointsetEvents.class) > messagesToSample)
+        () -> (countReceivedEvents(PointsetEvents.class) >= messagesToSample)
     );
 
     List<PointsetEvents> receivedEvents = popReceivedEvents(PointsetEvents.class);

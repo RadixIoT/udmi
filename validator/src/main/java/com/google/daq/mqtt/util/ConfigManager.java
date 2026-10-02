@@ -2,6 +2,7 @@ package com.google.daq.mqtt.util;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.daq.mqtt.util.providers.FamilyProvider.NAMED_FAMILIES;
+import static com.google.daq.mqtt.util.providers.FamilyProvider.constructUrl;
 import static com.google.udmi.util.ContextWrapper.getCurrentContext;
 import static com.google.udmi.util.ContextWrapper.runInContext;
 import static com.google.udmi.util.ContextWrapper.wrapExceptionWithContext;
@@ -17,8 +18,11 @@ import static java.util.Objects.requireNonNull;
 import static java.util.Optional.ofNullable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.daq.mqtt.util.providers.FamilyProvider;
+import com.google.udmi.util.ExceptionList;
 import com.google.udmi.util.SiteModel;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +56,7 @@ public class ConfigManager {
   private final String deviceId;
   private final SiteModel siteModel;
   private final Map<String, Exception> schemaViolationsMap = new HashMap<>();
+  private final List<String> warnings = new ArrayList<>();
 
   /**
    * Initiates ConfigManager for the given device at the given file location.
@@ -171,18 +176,59 @@ public class ConfigManager {
       String family = target.family;
       String localAddr = ifNotNullGet(family, this::getLocalnetAddr);
       String gatewayAddr = target.addr;
-      checkState(localAddr == null || gatewayAddr == null,
-          format("both gateway.target.addr and localnet.families.%s.addr should not be defined",
-              family));
+      captureSchemaViolation(
+              format("%s gateway target", family),
+          () -> checkState(localAddr == null || gatewayAddr == null,
+              format("both gateway.target.addr and localnet.families.%s.addr should not be defined",
+                  family)));
       configVar.target.addr = ofNullable(localAddr).orElse(gatewayAddr);
     });
 
     return gatewayConfig;
   }
 
+  private FamilyProvider getFamilyProvider(String family) {
+    if (NAMED_FAMILIES.containsKey(family)) {
+      return NAMED_FAMILIES.get(family);
+    }
+    throw new RuntimeException("Unknown protocol family: " + family);
+  }
+
+  private void captureSchemaViolation(String description, Runnable action) {
+    try {
+      action.run();
+    } catch (Exception e) {
+      schemaViolationsMap.put(String.format("%s: %s", description, getCurrentContext()),
+          wrapExceptionWithContext(e, false));
+    }
+  }
+
   private String getLocalnetAddr(String rawFamily) {
     String family = ofNullable(rawFamily).orElse(DEFAULT_FAMILY);
-    return catchToNull(() -> metadata.localnet.families.get(family).addr);
+    String addr = catchToNull(() -> metadata.localnet.families.get(family).addr);
+    boolean isVendorRef = metadata.gateway != null
+        && metadata.gateway.target != null
+        && Boolean.TRUE.equals(metadata.gateway.target.vendor_ref);
+    if (!isVendorRef && addr != null) {
+      captureSchemaViolation(
+          format("%s localnet addr", family),
+          () -> getFamilyProvider(family).validateAddr(addr));
+    }
+    return addr;
+  }
+
+  private String getLocalnetNetwork(String rawFamily) {
+    String family = ofNullable(rawFamily).orElse(DEFAULT_FAMILY);
+    String addr = catchToNull(() -> metadata.localnet.families.get(family).network);
+    boolean isVendorRef = metadata.gateway != null
+        && metadata.gateway.target != null
+        && Boolean.TRUE.equals(metadata.gateway.target.vendor_ref);
+    if (!isVendorRef && addr != null) {
+      captureSchemaViolation(
+          format("%s localnet network", family),
+          () -> getFamilyProvider(family).validateNetwork(addr));
+    }
+    return addr;
   }
 
   private PointsetConfig getDevicePointsetConfig() {
@@ -226,6 +272,9 @@ public class ConfigManager {
 
   private String pointConfigRef(PointPointsetModel model) {
     String pointRef = model.ref;
+    if (pointRef == null) {
+      return null;
+    }
     String rawFamily = catchToNull(() -> metadata.gateway.target.family);
     String family = ofNullable(rawFamily).orElse(DEFAULT_FAMILY);
 
@@ -240,11 +289,26 @@ public class ConfigManager {
     checkState(localAddr == null || gatewayAddr == null,
         format("both gateway.target.addr and localnet.families.%s.addr should not be defined",
             family));
-    try {
-      NAMED_FAMILIES.get(family).validateRef(pointRef);
-    } catch (Exception e) {
-      schemaViolationsMap.put(String.format("%s %s: %s", family, pointRef, getCurrentContext()),
-          wrapExceptionWithContext(e, false));
+    String deviceAddr = ofNullable(localAddr).orElse(gatewayAddr);
+    String localUnitId = catchToNull(() -> metadata.localnet.families.get(family).unitid);
+    String gatewayUnitId = catchToNull(() -> metadata.gateway.target.unitid);
+    String unitId = ofNullable(localUnitId).orElse(gatewayUnitId);
+    boolean isVendorRef = metadata.gateway != null
+        && metadata.gateway.target != null
+        && Boolean.TRUE.equals(metadata.gateway.target.vendor_ref);
+    if (!isVendorRef) {
+      captureSchemaViolation(
+          format("%s %s", family, pointRef),
+          () -> {
+            String fullRef = pointRef.contains("://") ? pointRef
+                : constructUrl(family, deviceAddr, unitId, pointRef);
+            String targetFamily = "vendor";
+            if (fullRef.contains("://")) {
+              targetFamily = fullRef.substring(0, fullRef.indexOf("://"));
+            }
+
+            getFamilyProvider(targetFamily).validateUrl(fullRef);
+          });
     }
     return pointRef;
   }
@@ -257,11 +321,26 @@ public class ConfigManager {
     if (metadata.localnet == null) {
       return null;
     }
+
+    // Just get the addr and networks to validate that they're defined properly.
+    metadata.localnet.families.keySet().forEach(family -> {
+      if (NAMED_FAMILIES.containsKey(family)) {
+        getLocalnetAddr(family);
+        getLocalnetNetwork(family);
+      } else {
+        addWarning("Unrecognized localnet protocol family " + family);
+      }
+    });
+
     LocalnetConfig localnetConfig = new LocalnetConfig();
     localnetConfig.families = new HashMap<>();
     metadata.localnet.families.keySet()
         .forEach(family -> localnetConfig.families.put(family, new FamilyLocalnetConfig()));
     return localnetConfig;
+  }
+
+  private void addWarning(String warning) {
+    warnings.add(warning);
   }
 
   /**
@@ -349,5 +428,10 @@ public class ConfigManager {
 
   public Map<String, Exception> getSchemaViolationsMap() {
     return schemaViolationsMap;
+  }
+
+  public Exception warningsAsException() {
+    return warnings.isEmpty() ? null : new ExceptionList(warnings.stream()
+        .map(warning -> (Exception) new IllegalArgumentException(warning)).toList());
   }
 }

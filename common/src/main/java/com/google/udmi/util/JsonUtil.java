@@ -4,6 +4,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.udmi.util.GeneralUtils.OBJECT_MAPPER_STRICT;
 import static com.google.udmi.util.GeneralUtils.fromJsonString;
 import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
+import static com.google.udmi.util.GeneralUtils.isNotEmpty;
 import static com.google.udmi.util.GeneralUtils.toJsonString;
 import static java.util.Objects.requireNonNull;
 
@@ -11,18 +12,29 @@ import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.core.JsonParser.Feature;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.json.JsonReadFeature;
+import com.fasterxml.jackson.core.util.DefaultIndenter;
+import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.introspect.AnnotatedClass;
+import com.fasterxml.jackson.databind.introspect.JacksonAnnotationIntrospector;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.google.gson.internal.bind.util.ISO8601Utils;
+import com.google.udmi.util.ProperPrinter.OutputFormat;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.time.Instant;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 
 /**
  * Collection of utilities for working with json things.
@@ -35,6 +47,14 @@ public abstract class JsonUtil {
   private static final ObjectMapper STRICT_MAPPER = new ObjectMapper()
       .enable(Feature.ALLOW_COMMENTS)
       .enable(SerializationFeature.INDENT_OUTPUT)
+      .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
+      .configure(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY, true)
+      .setAnnotationIntrospector(new JacksonAnnotationIntrospector() {
+        @Override
+        public String[] findSerializationPropertyOrder(AnnotatedClass ac) {
+          return null;
+        }
+      })
       .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
       .setDateFormat(new CleanDateFormat())
       .enable(JsonReadFeature.ALLOW_NON_NUMERIC_NUMBERS.mappedFeature())
@@ -67,6 +87,18 @@ public abstract class JsonUtil {
   public static Map<String, Object> asMap(File input) {
     @SuppressWarnings("unchecked")
     Map<String, Object> map = loadFile(TreeMap.class, input);
+    return map;
+  }
+
+  /**
+   * Convert the json object to a LinkedHashMap object.
+   *
+   * @param input input file
+   * @return input as map object
+   */
+  public static Map<String, Object> asLinkedHashMap(File input) {
+    @SuppressWarnings("unchecked")
+    Map<String, Object> map = loadFile(LinkedHashMap.class, input);
     return map;
   }
 
@@ -481,9 +513,261 @@ public abstract class JsonUtil {
    */
   public static void writeFile(Object theThing, File file) {
     try {
+      if (theThing != null && !(theThing instanceof String || theThing instanceof Number
+          || theThing instanceof Boolean || theThing instanceof Date)) {
+        theThing = OBJECT_MAPPER.convertValue(theThing, TreeMap.class);
+      }
       OBJECT_MAPPER.writeValue(file, theThing);
     } catch (Exception e) {
       throw new RuntimeException("While writing " + file.getAbsolutePath(), e);
     }
   }
+
+  /**
+   * Write json representation to a file.
+   * This method is added because the method `writeFile` does not print the array items on a newline.
+   *
+   * @param theThing object to write
+   * @param file     output file
+   */
+  public static void writeFileWithCustomIndentForArrays(Object theThing, File file) {
+    try {
+      if (theThing != null && !(theThing instanceof String || theThing instanceof Number
+          || theThing instanceof Boolean || theThing instanceof Date)) {
+        theThing = OBJECT_MAPPER.convertValue(theThing, TreeMap.class);
+      }
+      DefaultPrettyPrinter.Indenter indenter = new DefaultIndenter("  ", DefaultIndenter.SYS_LF);
+      DefaultPrettyPrinter printer = new DefaultPrettyPrinter();
+      printer.indentArraysWith(indenter);
+      OBJECT_MAPPER.writer(printer).writeValue(file, theThing);
+    } catch (Exception e) {
+      throw new RuntimeException("While writing with custom printer " + file.getAbsolutePath(), e);
+    }
+  }
+
+  /**
+   * Writes a JSON representation to a file using the custom ProperPrinter
+   * to ensure correct colon spacing (e.g., "key": "value") and array item indentation.
+   *
+   * @param theThing object to write
+   * @param file     output file
+   */
+  public static void writeFormattedFile(Object theThing, File file) {
+    try {
+      ProperPrinter printer = new ProperPrinter(OutputFormat.VERBOSE_ARRAY_ON_NEW_LINE);
+      OBJECT_MAPPER.writer(printer).writeValue(file, theThing);
+    } catch (Exception e) {
+      throw new RuntimeException("While writing formatted file " + file.getAbsolutePath(), e);
+    }
+  }
+
+  public static Map<String, Object> flattenNestedMap(Map<String, Object> map, String separator) {
+    Map<String, Object> flattenedMap = new LinkedHashMap<>();
+    flatten(map, "", flattenedMap, separator);
+    return flattenedMap;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static void flatten(Map<String, Object> currentMap, String currentKey,
+      Map<String, Object> flattenedMap, String separator) {
+    if (currentMap.isEmpty() && isNotEmpty(currentKey)) {
+      flattenedMap.put(currentKey, currentMap);
+      return;
+    }
+    for (Map.Entry<String, Object> entry : currentMap.entrySet()) {
+      String key = entry.getKey();
+      Object value = entry.getValue();
+      String newKey = currentKey.isEmpty() ? key : currentKey + separator + key;
+
+      if (value instanceof Map) {
+        flatten((Map<String, Object>) value, newKey, flattenedMap, separator);
+      } else {
+        flattenedMap.put(newKey, value);
+      }
+    }
+  }
+
+  public static JsonNode nestFlattenedJson(Map<String, String> flattenedJsonMap,
+      String separatorRegex, Set<Pattern> nonNumericKeyPatterns) {
+    ObjectNode rootNode = OBJECT_MAPPER.createObjectNode();
+
+    for (Map.Entry<String, String> entry : flattenedJsonMap.entrySet()) {
+      String key = entry.getKey();
+      String value = entry.getValue();
+      String[] parts = key.split(separatorRegex);
+      nest(rootNode, parts, value, 0, OBJECT_MAPPER, key, nonNumericKeyPatterns);
+    }
+
+    return rootNode;
+  }
+
+  private static void nest(JsonNode currentNode, String[] parts, String value, int index,
+      ObjectMapper mapper, String fullKey, Set<Pattern> nonNumericKeyPatterns) {
+
+    String currentPart = parts[index];
+
+    if (index == parts.length - 1) {
+      handleSetLeafValue(currentNode, currentPart, value, mapper, fullKey, nonNumericKeyPatterns);
+      return;
+    }
+    JsonNode childNode;
+    int numericCurrentPartIfArray = -1;
+
+    if (currentNode instanceof ObjectNode) {
+      childNode = currentNode.get(currentPart);
+    } else if (currentNode instanceof ArrayNode) {
+      numericCurrentPartIfArray = parseAndValidateArrayIndex(currentPart, (ArrayNode) currentNode);
+      childNode = currentNode.get(numericCurrentPartIfArray);
+    } else {
+      throw new RuntimeException(
+          "Cannot traverse into node type: " + currentNode.getNodeType() +
+              " for part '" + currentPart + "'. Current node: " + currentNode);
+    }
+
+    String nextPart = parts[index + 1];
+    childNode = ensureAndGetChildNode(currentNode, childNode, currentPart,
+        numericCurrentPartIfArray, nextPart, mapper);
+
+    nest(childNode, parts, value, index + 1, mapper, fullKey, nonNumericKeyPatterns);
+  }
+
+  private static JsonNode convertValueToJsonNode(String value, ObjectMapper mapper, String fullKey,
+      Set<Pattern> nonNumericKeyPatterns) {
+    if (value == null) {
+      return mapper.getNodeFactory().nullNode();
+    }
+    String trimmedValue = value.trim();
+    if (nonNumericKeyPatterns != null &&
+        nonNumericKeyPatterns.stream()
+            .anyMatch(pattern -> fullKey.matches(pattern.pattern()))) {
+      return mapper.getNodeFactory().textNode(value);
+    }
+
+    if ("true".equalsIgnoreCase(trimmedValue)) {
+      return mapper.getNodeFactory().booleanNode(true);
+    }
+    if ("false".equalsIgnoreCase(trimmedValue)) {
+      return mapper.getNodeFactory().booleanNode(false);
+    }
+
+    if ("null".equalsIgnoreCase(trimmedValue)) {
+      return mapper.getNodeFactory().nullNode();
+    }
+    if ("{}".equals(trimmedValue)) {
+      return mapper.getNodeFactory().objectNode();
+    }
+    if ("[]".equals(trimmedValue)) {
+      return mapper.getNodeFactory().arrayNode();
+    }
+
+    // If the string contains any letters (and isn't "true" or "false"), treat it as a text node.
+    if (trimmedValue.matches(".*[a-zA-Z].*")) {
+      return mapper.getNodeFactory().textNode(value);
+    }
+
+    // Attempt to parse as a number
+    try {
+      int intValue = Integer.parseInt(trimmedValue);
+      return mapper.getNodeFactory().numberNode(intValue);
+    } catch (NumberFormatException e1) {
+      try {
+        long longValue = Long.parseLong(trimmedValue);
+        return mapper.getNodeFactory().numberNode(longValue);
+      } catch (NumberFormatException e2) {
+        try {
+          double doubleValue = Double.parseDouble(trimmedValue);
+          return mapper.getNodeFactory().numberNode(doubleValue);
+        } catch (NumberFormatException e3) {
+          // Handle purely numeric-looking strings that still fail parsing
+          // (e.g., "1.2.3") and fall back to text.
+          return mapper.getNodeFactory().textNode(value);
+        }
+      }
+    }
+  }
+
+  private static void handleSetLeafValue(JsonNode currentNode, String part, String value,
+      ObjectMapper mapper, String fullKey, Set<Pattern> nonNumericKeyPatterns) {
+    JsonNode valueNode = convertValueToJsonNode(value, mapper, fullKey, nonNumericKeyPatterns);
+
+    if (currentNode instanceof ObjectNode) {
+      ((ObjectNode) currentNode).set(part, valueNode);
+    } else if (currentNode instanceof ArrayNode arrayNode) {
+      int arrayIndex = parseAndValidateArrayIndex(part, arrayNode);
+      arrayNode.set(arrayIndex, valueNode);
+    } else {
+      throw new RuntimeException(
+          "Cannot set value on node type: " + currentNode.getNodeType() +
+              " for part '" + part + "'. Current node: " + currentNode);
+    }
+  }
+
+  private static int parseAndValidateArrayIndex(String part, ArrayNode arrayNode) {
+    try {
+      int arrayIndex = Integer.parseInt(part);
+      if (arrayIndex < 0) {
+        throw new RuntimeException("Array index cannot be negative: " + part);
+      }
+      while (arrayNode.size() <= arrayIndex) {
+        arrayNode.addNull();
+      }
+      return arrayIndex;
+    } catch (NumberFormatException e) {
+      throw new RuntimeException(
+          "Expected numeric array index for part '" + part +
+              "' when current node is an Array. Array content: " + arrayNode.toString(), e);
+    }
+  }
+
+  private static JsonNode ensureAndGetChildNode(
+      JsonNode parentNode,
+      JsonNode childNode,
+      String currentKeyOrStringIndex,
+      int numericIndexIfParentIsArray,
+      String nextKeyOrStringIndex,
+      ObjectMapper mapper) {
+
+    boolean nextPathPartSuggestsArray = isPathPartArrayIndex(nextKeyOrStringIndex);
+
+    if (childNode == null || childNode.isNull()) {
+      if (nextPathPartSuggestsArray) {
+        childNode = mapper.createArrayNode();
+      } else {
+        childNode = mapper.createObjectNode();
+      }
+
+      if (parentNode instanceof ObjectNode) {
+        ((ObjectNode) parentNode).set(currentKeyOrStringIndex, childNode);
+      } else if (parentNode instanceof ArrayNode) {
+        ((ArrayNode) parentNode).set(numericIndexIfParentIsArray, childNode);
+      } else {
+        throw new IllegalStateException("Parent node is neither ObjectNode nor ArrayNode, "
+            + "cannot attach child. Parent: " + parentNode);
+      }
+    } else {
+      if (nextPathPartSuggestsArray && !childNode.isArray()) {
+        throw new RuntimeException(
+            "Path conflict: Expected ArrayNode for current part '" + currentKeyOrStringIndex +
+                "' (because next part '" + nextKeyOrStringIndex + "' is numeric), but found " +
+                childNode.getNodeType() + ". Existing node: " + childNode);
+      }
+      if (!nextPathPartSuggestsArray && !childNode.isObject()) {
+        throw new RuntimeException(
+            "Path conflict: Expected ObjectNode for current part '" + currentKeyOrStringIndex +
+                "' (because next part '" + nextKeyOrStringIndex + "' is not numeric), but found "
+                + childNode.getNodeType() + ". Existing node: " + childNode);
+      }
+    }
+    return childNode;
+  }
+
+  private static boolean isPathPartArrayIndex(String pathPart) {
+    try {
+      Integer.parseInt(pathPart);
+      return true;
+    } catch (NumberFormatException ignored) {
+      return false;
+    }
+  }
+
 }

@@ -1,8 +1,7 @@
 package com.google.daq.mqtt.validator;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.daq.mqtt.util.providers.FamilyProvider.constructRef;
-import static java.util.Objects.requireNonNull;
+import static com.google.daq.mqtt.util.providers.FamilyProvider.constructUrl;
 
 import com.google.daq.mqtt.util.providers.FamilyProvider;
 import java.util.Map;
@@ -41,15 +40,17 @@ public class DiscoveryValidator {
    * Validate a discovery event.
    */
   public void validateMessage(DiscoveryEvents discoveryEvents) {
-    String scanFamily = requireNonNull(discoveryEvents.family,
-        "discovery family not defined");
+    if (discoveryEvents.family == null) {
+      throw new IllegalArgumentException("discovery family not defined");
+    }
+    String scanFamily = discoveryEvents.family;
     FamilyProvider familyProvider = FamilyProvider.NAMED_FAMILIES.get(scanFamily);
     checkNotNull(familyProvider, "Unknown provider for discovery family " + scanFamily);
     if (discoveryEvents.refs == null) {
-      familyProvider.validateRef(constructRef(scanFamily, discoveryEvents.addr, null));
+      familyProvider.validateUrl(constructUrl(scanFamily, discoveryEvents.addr, null));
     } else {
       discoveryEvents.refs.forEach((key, value) ->
-          familyProvider.validateRef(constructRef(scanFamily, discoveryEvents.addr, key)));
+          familyProvider.validateUrl(constructUrl(scanFamily, discoveryEvents.addr, key)));
     }
   }
 

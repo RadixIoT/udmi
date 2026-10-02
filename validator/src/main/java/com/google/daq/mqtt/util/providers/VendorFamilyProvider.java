@@ -14,12 +14,17 @@ public class VendorFamilyProvider implements FamilyProvider {
   }
 
   @Override
-  public void validateRef(String metadataRef) {
+  public void validatePoint(String pointRef) {
     // Always passes, no restrictions!
   }
 
   @Override
-  public void validateAddr(String scanAddr) {
+  public void validateAddr(String addr) {
+    // Always passes, no restrictions!
+  }
+
+  @Override
+  public void validateNetwork(String network) {
     // Always passes, no restrictions!
   }
 }

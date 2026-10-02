@@ -7,7 +7,8 @@
       "globulating_globar": {
         "units": "Bars"
       }
-    }
+    },
+    "sample_rate_sec": 300
   },
   "system": {
     "metrics_rate_sec": 10,
@@ -15,5 +16,5 @@
     "operation": {}
   },
   "timestamp": "2020-05-01T13:39:07Z",
-  "version": "1.5.3"
+  "version": "1.5.7"
 }

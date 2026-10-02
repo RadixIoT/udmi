@@ -16,7 +16,7 @@
     },
     "reglist": {
       "periodic_sec": 3600,
-      "payload": "query/cloud:{\"generation\":\"{{timestamp}}\", \"depth\":\"registries\"}",
+      "payload": "query/cloud:{\"generation\":\"{{timestamp}}\", \"depth\":\"buckets\"}",
       "send_id": "${UDMI_PREFIX}udmi_control",
       "generation": "2024-03-06T00:00:00Z"
     },
@@ -49,11 +49,6 @@
       "send_id": "${UDMI_PREFIX}udmi_target",
       "side_id": "${UDMI_PREFIX}udmi_control"
     },
-    "provision": {
-      "recv_id": "${UDMI_PREFIX}udmi_target-provision",
-      "send_id": "${UDMI_PREFIX}udmi_target",
-      "enabled": "true"
-    },
     "bitbox": {
       "recv_id": "${BITBOX_DISCOVERY}",
       "send_id": "${UDMI_PREFIX}udmi_target",
@@ -71,11 +66,10 @@
   "iot_access": {
     "iot-access": {
       "provider": "dynamic",
-      "project_id": "clearblade-iot-core, pubsub"
+      "project_id": "zanzara, pubsub"
     },
-    "clearblade-iot-core": {
-      "provider": "clearblade",
-      "project_id": "${CLEARBLADE_PROJECT}",
+    "zanzara": {
+      "provider": "zanzara",
       "profile_sec": 10
     },
     "pubsub": {

@@ -1,5 +1,5 @@
 {
-  "$udmi_version": "1.5.2",
+  "$udmi_version": "1.5.7",
   "title": "Common",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
@@ -29,8 +29,11 @@
       "enum": [
         "buckets",
         "entries",
+        "parts",
+        "system",
+        "refs",
         "details",
-        "parts"
+        "trace"
       ]
     },
     "iot_provider": {
@@ -39,6 +42,7 @@
         "local",
         "dynamic",
         "implicit",
+        "zanzara",
         "pubsub",
         "mqtt",
         "gbos",
@@ -46,7 +50,11 @@
         "etcd",
         "jwt",
         "clearblade"
-      ]
+      ],
+      "$presentation": {
+        "display": "show",
+        "style": "bold"
+      }
     },
     "operation": {
       "title": "Model Operation",

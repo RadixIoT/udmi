@@ -97,6 +97,7 @@ public class MqttPublisher implements MessagePublisher {
   private static final String CONFIG_TOPIC = "/config";
   private static final String ERROR_TOPIC = "/errors";
   private static final String COMMAND_TOPIC = "/commands/#";
+  private static final String REFLECT_TOPIC = "/reflect";
   private static final String MESSAGE_TOPIC_FMT = "/%s";
   private static final int QOS_AT_MOST_ONCE = 0;
   private static final int QOS_AT_LEAST_ONCE = 1;
@@ -191,7 +192,9 @@ public class MqttPublisher implements MessagePublisher {
         () -> switch (iotProvider) {
           case JWT -> requireNonNull(executionConfiguration.bridge_host, "missing bridge_host");
           case GBOS -> DEFAULT_GBOS_HOSTNAME;
-          case MQTT -> requireNonNull(executionConfiguration.project_id);
+          case MQTT ->
+              ofNullable(executionConfiguration.bridge_host)
+                  .orElse(executionConfiguration.project_id);
           case CLEARBLADE -> DEFAULT_CLEARBLADE_HOSTNAME;
           default -> throw new RuntimeException("Unsupported iot provider " + iotProvider);
         }
@@ -236,7 +239,7 @@ public class MqttPublisher implements MessagePublisher {
   }
 
   private CertManager getCertManager() {
-    boolean needCerts = iotProvider.equals(IotProvider.MQTT);
+    boolean needCerts = iotProvider.equals(IotProvider.MQTT) || iotProvider.equals(IotProvider.JWT);
     File reflector = new SiteModel(siteModel).getReflectorDir();
     return ifTrueGet(needCerts && reflector != null,
         () -> new CertManager(new File(reflector, CA_CERT_FILE), reflector, Transport.SSL,
@@ -245,7 +248,7 @@ public class MqttPublisher implements MessagePublisher {
 
   private String getTopicBase() {
     return switch (iotProvider) {
-      case IMPLICIT, GBOS, CLEARBLADE -> format(DEVICE_TOPIC_FMT, deviceId);
+      case ZANZARA, IMPLICIT, GBOS, CLEARBLADE, JWT -> format(DEVICE_TOPIC_FMT, deviceId);
       case MQTT -> format(FULL_TOPIC_FMT, registryId, deviceId);
       default -> throw new RuntimeException("Unknown iotProvider " + iotProvider);
     };
@@ -430,6 +433,7 @@ public class MqttPublisher implements MessagePublisher {
 
   private void sendMessage(String mqttTopic, byte[] mqttMessage) throws Exception {
     LOG.debug(deviceId + " sending message to " + mqttTopic);
+    System.err.println("Reflector sending MQTT message to " + mqttTopic);
     try (AutoCloseable x = sendTime.newTimedSegment()) {
       mqttClient.publish(mqttTopic, mqttMessage, QOS_AT_LEAST_ONCE, MQTT_NO_RETAIN);
     }
@@ -524,7 +528,7 @@ public class MqttPublisher implements MessagePublisher {
 
   private String getUserName() {
     return switch (iotProvider) {
-      case GBOS, CLEARBLADE -> UNUSED_ACCOUNT_NAME;
+      case GBOS, CLEARBLADE, JWT -> UNUSED_ACCOUNT_NAME;
       case MQTT -> format(MQTT_USER_NAME_FMT, registryId, deviceId);
       default -> throw new RuntimeException("Unsupported iot provider " + iotProvider);
     };
@@ -542,6 +546,9 @@ public class MqttPublisher implements MessagePublisher {
       subscribeToConfig(deviceId);
       subscribeToErrors(deviceId);
       subscribeToCommands(deviceId);
+      if (iotProvider == IotProvider.MQTT) {
+        clientSubscribe(REFLECT_TOPIC, QOS_AT_LEAST_ONCE);
+      }
       LOG.info(deviceId + " done with setup connection");
     } catch (Exception e) {
       throw new RuntimeException("While setting up new mqtt connection to " + deviceId, e);
@@ -551,7 +558,7 @@ public class MqttPublisher implements MessagePublisher {
   private char[] getAuthToken(String audience) {
     return switch (iotProvider) {
       case MQTT -> getHashPassword(audience);
-      case GBOS, CLEARBLADE -> createJwt(audience);
+      case GBOS, CLEARBLADE, JWT -> createJwt(audience);
       default -> throw new RuntimeException("Unsupported iotProvider " + iotProvider);
     };
   }
@@ -610,19 +617,29 @@ public class MqttPublisher implements MessagePublisher {
       return clientId;
     }
     return switch (iotProvider) {
-      case GBOS, CLEARBLADE -> format(LONG_ID_FMT, projectId, cloudRegion, registryId, deviceId);
-      case MQTT -> format(SHORT_ID_FMT, registryId, deviceId);
+      case GBOS, CLEARBLADE, JWT ->
+          format(LONG_ID_FMT, projectId, cloudRegion, registryId, deviceId);
+      case MQTT -> format(SHORT_ID_FMT + "-%06x", registryId, deviceId,
+          (int) (Math.random() * 0x1000000L));
       default -> throw new RuntimeException("Provider not supported " + iotProvider);
     };
   }
 
   private String getBrokerUrl() {
-    return format(BROKER_URL_FORMAT, getBrokerProtocol(), providerHostname, BRIDGE_PORT);
+    String host = providerHostname;
+    String envPort = System.getenv("MQTT_PORT");
+    String port = envPort != null ? envPort : BRIDGE_PORT;
+    if (host != null && host.contains(":")) {
+      int colonIndex = host.indexOf(":");
+      port = host.substring(colonIndex + 1);
+      host = host.substring(0, colonIndex);
+    }
+    return format(BROKER_URL_FORMAT, getBrokerProtocol(), host, port);
   }
 
   private String getBrokerProtocol() {
     return switch (iotProvider) {
-      case MQTT, GBOS, CLEARBLADE -> "ssl";
+      case MQTT, GBOS, CLEARBLADE, JWT -> "ssl";
       default -> throw new RuntimeException("Provider not supported " + iotProvider);
     };
   }
@@ -710,6 +727,22 @@ public class MqttPublisher implements MessagePublisher {
 
   public String getBridgeHost() {
     return providerHostname;
+  }
+
+  /**
+   * Get the bridge port.
+   *
+   * @return The bridge port integer.
+   */
+  public Integer getBridgePort() {
+    String host = providerHostname;
+    String envPort = System.getenv("MQTT_PORT");
+    String port = envPort != null ? envPort : BRIDGE_PORT;
+    if (host != null && host.contains(":")) {
+      int colonIndex = host.indexOf(":");
+      port = host.substring(colonIndex + 1);
+    }
+    return Integer.parseInt(port);
   }
 
   public void shutdown() {

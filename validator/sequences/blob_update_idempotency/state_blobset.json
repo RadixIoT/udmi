@@ -1,0 +1,10 @@
+{
+  "blobs" : {
+    "system" : {
+      "generation" : "TIMESTAMP",
+      "phase" : "final"
+    }
+  },
+  "timestamp" : "TIMESTAMP",
+  "version" : "1.5.3"
+}

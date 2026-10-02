@@ -1,0 +1,141 @@
+{
+  "event_no" : 9,
+  "last_config" : "TIMESTAMP",
+  "logentries" : [ {
+    "message" : "Starting connection 1754632214527 with 0",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 400
+  }, {
+    "message" : "Terminating AHU-1 PubberPointsetManager sender",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 400
+  }, {
+    "message" : "Terminating AHU-1 PubberSystemManager sender",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 400
+  }, {
+    "message" : "Terminating AHU-1 PubberPublisherHost sender",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 400
+  }, {
+    "message" : "CA cert file: /home/runner/work/udmi/udmi/sites/udmi_site_model/reflector/ca.crt",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 200
+  }, {
+    "message" : "Device cert file: /home/runner/work/udmi/udmi/sites/udmi_site_model/devices/AHU-1/rsa_private.crt",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 200
+  }, {
+    "message" : "Private key file: /home/runner/work/udmi/udmi/sites/udmi_site_model/devices/AHU-1/rsa_private.pem",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 200
+  }, {
+    "message" : "Password sha256 6b5344e1",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 200
+  }, {
+    "message" : "Creating new config latch for AHU-1",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 400
+  }, {
+    "message" : "Device AHU-1 config handler",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 200
+  }, {
+    "message" : "Received config for config latch AHU-1",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 400
+  }, {
+    "message" : "Connection complete.",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 200
+  }, {
+    "message" : "Start waiting 10s for config latch for AHU-1",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 400
+  }, {
+    "message" : "Ending connection 1754632214527 with 1",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 400
+  }, {
+    "message" : "Persisting connection endpoint",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 300
+  }, {
+    "message" : "Updating persistent store:\n{\n  \"endpoint\" : {\n    \"protocol\" : \"mqtt\",\n    \"transport\" : \"ssl\",\n    \"hostname\" : \"localhost\",\n    \"client_id\" : \"/r/ZZ-TRI-FECTA/d/AHU-1\",\n    \"topic_prefix\" : \"/r/ZZ-TRI-FECTA_0/d/AHU-1\",\n    \"auth_provider\" : {\n      \"basic\" : {\n        \"username\" : \"/r/ZZ-TRI-FECTA_0/d/AHU-1\",\n        \"password\" : \"38269d11\"\n      }\n    },\n    \"generation\" : \"TIMESTAMP\"\n  },\n  \"restart_count\" : 1\n}",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 400
+  }, {
+    "message" : "Starting AHU-1 PubberPublisherHost sender with delay 10s",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 400
+  }, {
+    "message" : "TIMESTAMP",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 200
+  }, {
+    "message" : "Starting AHU-1 PubberSystemManager sender with delay 10s",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 400
+  }, {
+    "message" : "Starting AHU-1 PubberPointsetManager sender with delay 10s",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 400
+  }, {
+    "message" : "success",
+    "category" : "system.config.apply",
+    "timestamp" : "TIMESTAMP",
+    "level" : 300
+  }, {
+    "message" : "Update state TIMESTAMP",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 200
+  }, {
+    "message" : "Update state TIMESTAMP",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 200
+  }, {
+    "message" : "Device AHU-1 config handler",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 200
+  }, {
+    "message" : "TIMESTAMP",
+    "category" : "device.log",
+    "timestamp" : "TIMESTAMP",
+    "level" : 200
+  }, {
+    "message" : "success",
+    "category" : "system.config.apply",
+    "timestamp" : "TIMESTAMP",
+    "level" : 300
+  } ],
+  "metrics" : {
+    "mem_total_mb" : 64.0,
+    "mem_free_mb" : 20.440109252929688
+  },
+  "timestamp" : "TIMESTAMP",
+  "version" : "1.5.3"
+}

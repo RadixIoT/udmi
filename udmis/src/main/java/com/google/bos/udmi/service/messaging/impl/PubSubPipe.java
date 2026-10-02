@@ -16,6 +16,8 @@ import static java.util.Optional.ofNullable;
 
 import com.google.api.core.AbstractApiService;
 import com.google.api.core.ApiFuture;
+import com.google.api.core.ApiFutureCallback;
+import com.google.api.core.ApiFutures;
 import com.google.api.core.ApiService;
 import com.google.api.core.ApiService.Listener;
 import com.google.api.core.ApiService.State;
@@ -30,6 +32,7 @@ import com.google.cloud.pubsub.v1.MessageReceiver;
 import com.google.cloud.pubsub.v1.Publisher;
 import com.google.cloud.pubsub.v1.Subscriber;
 import com.google.cloud.pubsub.v1.SubscriptionAdminClient;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.protobuf.ByteString;
 import com.google.pubsub.v1.ProjectSubscriptionName;
 import com.google.pubsub.v1.ProjectTopicName;
@@ -37,6 +40,8 @@ import com.google.pubsub.v1.PubsubMessage;
 import com.google.udmi.util.Common;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -140,7 +145,7 @@ public class PubSubPipe extends MessageBase implements MessageReceiver {
     }
     throttleQueue();
     try {
-      publisherQueueSize.incrementAndGet();
+      int currentQueueSize = publisherQueueSize.incrementAndGet();
       Envelope envelope = ofNullable(bundle.envelope).orElse(new Envelope());
       Map<String, String> stringMap = toMap(envelope).entrySet().stream()
           .collect(Collectors.toMap(Entry::getKey, entry -> (String) entry.getValue()));
@@ -149,19 +154,66 @@ public class PubSubPipe extends MessageBase implements MessageReceiver {
           .setData(ByteString.copyFromUtf8(stringify(bundle.message)))
           .build();
       randomlyFail();
-      ApiFuture<String> publish = publisher.publish(message);
-      Thread.sleep(publishDelaySec * MS_PER_SEC);
-      String publishedId = publish.get();
-      String publishedTransactionId = PS_TXN_PREFIX + publishedId;
-      debug(format("Published PubSub %s/%s to %s as %s/%s %s -> %s",
-          stringMap.get(SUBTYPE_PROPERTY_KEY), stringMap.get(SUBFOLDER_PROPERTY_KEY),
-          topicId, envelope.deviceRegistryId, envelope.deviceId, envelope.transactionId,
-          publishedTransactionId));
+
+      debug(
+          format("Preparing to publish PubSub message for %s/%s. Current internal queue size: %d",
+          envelope.deviceRegistryId, envelope.deviceId, currentQueueSize));
+
+      long publishStartTime = System.currentTimeMillis();
+      long sleepTime = publishDelaySec * MS_PER_SEC;
+      ApiFuture<String> publish;
+      try {
+        publish = publisher.publish(message);
+      } catch (Exception e) {
+        publisherQueueSize.decrementAndGet();
+        throttleQueue();
+        throw new RuntimeException(
+            "While publishing bundle to " + publisher.getTopicNameString(), e);
+      }
+
+      ApiFutures.addCallback(publish, new ApiFutureCallback<String>() {
+        @Override
+        public void onFailure(Throwable t) {
+          publisherQueueSize.decrementAndGet();
+          throttleQueue();
+          error(format("Failed to publish PubSub message for %s/%s: %s",
+              envelope.deviceRegistryId, envelope.deviceId, friendlyStackTrace(t)));
+        }
+
+        @Override
+        public void onSuccess(String result) {
+          publisherQueueSize.decrementAndGet();
+          throttleQueue();
+          long gcpAckLatencyMs = (System.currentTimeMillis() - publishStartTime) - sleepTime;
+
+          String publishedTransactionId = PS_TXN_PREFIX + result;
+          debug(format("Published PubSub %s/%s to %s as %s/%s %s -> %s",
+              stringMap.get(SUBTYPE_PROPERTY_KEY), stringMap.get(SUBFOLDER_PROPERTY_KEY),
+              topicId, envelope.deviceRegistryId, envelope.deviceId, envelope.transactionId,
+              publishedTransactionId));
+          debug(format("PubSub Message %s published with GCP Ack Latency %dms",
+              publishedTransactionId, gcpAckLatencyMs));
+        }
+      }, MoreExecutors.directExecutor());
+
+      try {
+        if (sleepTime > 0) {
+          Thread.sleep(sleepTime);
+        }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException("Interrupted while waiting for publish delay", e);
+      }
     } catch (Exception e) {
+      boolean alreadyHandled = e instanceof RuntimeException
+          && e.getMessage() != null
+          && e.getMessage().contains("While publishing bundle");
+      if (!alreadyHandled) {
+        // Only throttle/decrement if the exception happened BEFORE publisher.publish()
+        publisherQueueSize.decrementAndGet();
+        throttleQueue();
+      }
       throw new RuntimeException("While publishing bundle to " + publisher.getTopicNameString(), e);
-    } finally {
-      publisherQueueSize.decrementAndGet();
-      throttleQueue();
     }
   }
 
@@ -197,15 +249,35 @@ public class PubSubPipe extends MessageBase implements MessageReceiver {
   public void receiveMessage(PubsubMessage message, AckReplyConsumer reply) {
     // Ack first to prevent a recurring loop of processing a faulty message.
     reply.ack();
-    Map<String, String> attributesMap = new HashMap<>(message.getAttributesMap());
     String messageId = message.getMessageId();
+
+    String messageTransactionId = PS_TXN_PREFIX + messageId;
+    Instant publishTime = Instant.ofEpochSecond(
+        message.getPublishTime().getSeconds(),
+        message.getPublishTime().getNanos()
+    );
+    long latencyMs = Duration.between(publishTime, Instant.now()).toMillis();
+    debug(format("PubSub message %s received. Processing latency from publish time %s: %dms",
+        messageTransactionId, publishTime, latencyMs));
+
+    Map<String, String> attributesMap = new HashMap<>(message.getAttributesMap());
     attributesMap.computeIfAbsent("publishTime",
         key -> isoConvert(ofEpochSecond(message.getPublishTime().getSeconds())));
     attributesMap.computeIfAbsent(Common.TRANSACTION_KEY, key -> PS_TXN_PREFIX + messageId);
 
     String source = attributesMap.get(SOURCE_KEY);
-    String fullSource =
-        (source != null && source.startsWith(SOURCE_SEPARATOR)) ? PUBSUB_SOURCE + source : source;
+    String fullSource = null;
+    if (source != null) {
+      if (source.startsWith(PUBSUB_SOURCE)) {
+        fullSource = source;
+      } else if (source.startsWith(SOURCE_SEPARATOR)) {
+        fullSource = PUBSUB_SOURCE + source;
+      } else {
+        fullSource = PUBSUB_SOURCE + SOURCE_SEPARATOR + source;
+      }
+    } else {
+      fullSource = PUBSUB_SOURCE;
+    }
     attributesMap.put(SOURCE_KEY, fullSource);
 
     receiveMessage(attributesMap, message.getData().toStringUtf8());

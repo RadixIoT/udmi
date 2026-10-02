@@ -1,5 +1,5 @@
 {
-  "downgraded_from": "1.5.3",
+  "downgraded_from": "1.5.7",
   "gateway": {
     "proxy_ids": [
       "SF-28",
@@ -14,7 +14,8 @@
     }
   },
   "pointset": {
-    "points": {}
+    "points": {},
+    "sample_rate_sec": 300
   },
   "system": {
     "metrics_rate_sec": 10,

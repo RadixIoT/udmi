@@ -8,7 +8,6 @@ usage error: $*
 $0 [step]
 
 where [step] is one of:
-  install_dependencies
   code_tests
   schema_tests
   trace_tests
@@ -44,19 +43,19 @@ function test_wrap {
 }
 
 case "$1" in
-  install_dependencies)
-    sudo true # Proactively update before test_wrap is called.
-    test_wrap bin/setup_base
-    test_wrap bin/clone_model
-    sudo ln -fs $PWD/bin/udmi /usr/local/bin/
-    ;;
   code_tests)
     test_wrap bin/gencode check
     test_wrap pubber/bin/build check
     test_wrap validator/bin/build check
     test_wrap udmis/bin/build check
     test_wrap bin/test_pylint
+    test_wrap services/bin/build check
+    test_wrap bin/test_generated_classes_py
+    test_wrap bin/test_pull
+    test_wrap bin/test_butler
+    test_wrap bin/test_gummi
     ;;
+
   schema_tests)
     test_wrap bin/test_schema
     ;;
@@ -68,13 +67,19 @@ case "$1" in
   registrar_tests)
     test_wrap bin/test_registrar
     test_wrap bin/test_sites
+    test_wrap bin/test_mockseq
+    test_wrap bin/test_dbo_extract
+    ;;
+  util_tests)
+    test_wrap bin/test_mantis
+    test_wrap bin/test_workbench
     ;;
   all_tests)
-    run_wrap install_dependencies
     run_wrap code_tests
     run_wrap schema_tests
     run_wrap trace_tests
     run_wrap registrar_tests
+    run_wrap util_tests
     ;;
   *)
     usage unrecognized step $1

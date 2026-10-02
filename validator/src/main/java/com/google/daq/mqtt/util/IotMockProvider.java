@@ -8,6 +8,7 @@ import static com.google.daq.mqtt.util.IotMockProvider.ActionType.CREATE_DEVICE_
 import static com.google.daq.mqtt.util.IotMockProvider.ActionType.DELETE_DEVICE_ACTION;
 import static com.google.daq.mqtt.util.IotMockProvider.ActionType.UPDATE_DEVICE_ACTION;
 import static com.google.daq.mqtt.util.IotMockProvider.ActionType.UPDATE_REGISTRY_ACTION;
+import static com.google.udmi.util.GeneralUtils.ifNotTrueThen;
 import static udmi.schema.CloudModel.Resource_type.GATEWAY;
 
 import com.google.udmi.util.IotProvider;
@@ -46,7 +47,8 @@ public class IotMockProvider implements IotProvider {
   public IotMockProvider(ExecutionConfiguration executionConfiguration) {
     siteModel = new SiteModel(executionConfiguration);
     siteModel.initialize();
-    siteModel.forEachDeviceId(this::populateCloudModel);
+    ifNotTrueThen(executionConfiguration.project_id.equals(SiteModel.MOCK_CLEAN),
+        () -> siteModel.forEachDeviceId(this::populateCloudModel));
     client = mockClientString(executionConfiguration.project_id, siteModel.getRegistryId(),
         siteModel.getCloudRegion());
   }
@@ -67,7 +69,7 @@ public class IotMockProvider implements IotProvider {
 
   @Override
   public void updateConfig(String deviceId, SubFolder subFolder, String config) {
-    checkArgument(cloudDevices.containsKey(deviceId), "missing device");
+    checkArgument(cloudDevices.containsKey(deviceId), "missing device for config: " + deviceId);
     mockAction(CONFIG_DEVICE_ACTION, deviceId, config, subFolder.value());
   }
 
@@ -78,7 +80,7 @@ public class IotMockProvider implements IotProvider {
 
   @Override
   public void updateDevice(String deviceId, CloudModel device) {
-    checkArgument(cloudDevices.containsKey(deviceId), "missing device");
+    checkArgument(cloudDevices.containsKey(deviceId), "missing device for update: " + deviceId);
     device.num_id = populateCloudModel(deviceId).num_id;
     mockAction(UPDATE_DEVICE_ACTION, deviceId, device, null);
   }
@@ -91,7 +93,7 @@ public class IotMockProvider implements IotProvider {
 
   @Override
   public void createResource(String deviceId, CloudModel device) {
-    checkArgument(!cloudDevices.containsKey(deviceId), "device already exists");
+    checkArgument(!cloudDevices.containsKey(deviceId), "device already exists: " + deviceId);
     CloudModel cloudModel = populateCloudModel(deviceId);
     device.num_id = cloudModel.num_id;
     cloudModel.resource_type = device.resource_type;
@@ -100,7 +102,7 @@ public class IotMockProvider implements IotProvider {
 
   @Override
   public void deleteDevice(String deviceId, Set<String> unbindIds) {
-    checkArgument(cloudDevices.containsKey(deviceId), "missing device");
+    checkArgument(cloudDevices.containsKey(deviceId), "missing device for delete: " + deviceId);
     cloudDevices.remove(deviceId);
     mockAction(DELETE_DEVICE_ACTION, deviceId, null, null);
   }
@@ -110,7 +112,7 @@ public class IotMockProvider implements IotProvider {
     return cloudDevices.get(deviceId);
   }
 
-  private CloudModel populateCloudModel(String deviceId) {
+  private synchronized CloudModel populateCloudModel(String deviceId) {
     return cloudDevices.computeIfAbsent(deviceId, id -> {
       // By design all devices are initially populated as non-gateway devices.
       CloudModel device = new CloudModel();
@@ -123,9 +125,12 @@ public class IotMockProvider implements IotProvider {
   public void bindGatewayDevices(String gatewayDeviceId, Set<String> proxyDeviceIds,
       boolean toBind) {
     proxyDeviceIds.forEach(proxyDeviceId -> {
-      checkArgument(cloudDevices.containsKey(proxyDeviceId), "missing proxy device");
-      checkArgument(cloudDevices.containsKey(gatewayDeviceId), "missing gateway device");
-      checkArgument(populateCloudModel(gatewayDeviceId).resource_type == GATEWAY, "not a gateway");
+      checkArgument(cloudDevices.containsKey(proxyDeviceId),
+          "missing proxy device: " + proxyDeviceId);
+      checkArgument(cloudDevices.containsKey(gatewayDeviceId),
+          "missing gateway device: " + gatewayDeviceId);
+      checkArgument(populateCloudModel(gatewayDeviceId).resource_type == GATEWAY,
+          "not a gateway: " + gatewayDeviceId);
       mockAction(BIND_DEVICE_ACTION, proxyDeviceId, gatewayDeviceId,
           (toBind ? ModelOperation.BIND : ModelOperation.UNBIND).value());
     });

@@ -1,5 +1,5 @@
 {
-  "$udmi_version": "1.5.2",
+  "$udmi_version": "1.5.7",
   "title": "Discovery Events",
   "description": "[Discovery result](../docs/specs/discovery.md) with implicit discovery",
   "$section": "Messages",
@@ -31,6 +31,10 @@
     },
     "addr": {
       "description": "The primary address of the device (for indicated family)",
+      "type": "string"
+    },
+    "network": {
+      "description": "The family network designator of the discovered device",
       "type": "string"
     },
     "event_no": {
@@ -85,7 +89,7 @@
       "additionalProperties": false,
       "existingJavaType": "java.util.Map<String, RefDiscovery>",
       "patternProperties": {
-        "^[-_.:/a-zA-Z0-9]+$": {
+        "^[-_.:/#a-zA-Z0-9]+$": {
           "$ref": "file:discovery_ref.json#"
         }
       }

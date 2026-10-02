@@ -15,6 +15,7 @@ import static com.google.udmi.util.Common.SEC_TO_MS;
 import static com.google.udmi.util.Common.SITE_METADATA_KEY;
 import static com.google.udmi.util.Common.SUBFOLDER_PROPERTY_KEY;
 import static com.google.udmi.util.Common.SUBTYPE_PROPERTY_KEY;
+import static com.google.udmi.util.Common.TIMESTAMP_KEY;
 import static com.google.udmi.util.Common.UDMI_VERSION_KEY;
 import static com.google.udmi.util.GeneralUtils.CSV_JOINER;
 import static com.google.udmi.util.GeneralUtils.catchToNull;
@@ -35,12 +36,15 @@ import static com.google.udmi.util.GeneralUtils.setOrSize;
 import static com.google.udmi.util.GeneralUtils.writeString;
 import static com.google.udmi.util.JsonUtil.JSON_SUFFIX;
 import static com.google.udmi.util.JsonUtil.OBJECT_MAPPER;
+import static com.google.udmi.util.JsonUtil.asMap;
+import static com.google.udmi.util.JsonUtil.isoConvert;
 import static com.google.udmi.util.JsonUtil.loadFile;
 import static com.google.udmi.util.JsonUtil.loadFileRequired;
 import static com.google.udmi.util.JsonUtil.safeSleep;
 import static com.google.udmi.util.JsonUtil.writeFile;
 import static com.google.udmi.util.MetadataMapKeys.UDMI_PREFIX;
 import static com.google.udmi.util.SiteModel.DEVICES_DIR;
+import static com.google.udmi.util.SiteModel.MOCK_CLEAN;
 import static com.google.udmi.util.SiteModel.MOCK_PROJECT;
 import static java.lang.Math.ceil;
 import static java.lang.String.format;
@@ -60,10 +64,12 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Sets.SetView;
+import com.google.daq.mqtt.external.ExternalProcessor;
 import com.google.daq.mqtt.registrar.LocalDevice.DeviceKind;
 import com.google.daq.mqtt.util.CloudDeviceSettings;
 import com.google.daq.mqtt.util.CloudIotManager;
 import com.google.daq.mqtt.util.DeviceGatewayBoundException;
+import com.google.daq.mqtt.util.IotMockProvider.MockAction;
 import com.google.daq.mqtt.util.MessagePublisher.QuerySpeed;
 import com.google.daq.mqtt.util.PubSubPusher;
 import com.google.udmi.util.CommandLineOption;
@@ -107,7 +113,6 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.commons.io.FileUtils;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.VisibleForTesting;
 import udmi.schema.CloudModel;
 import udmi.schema.CloudModel.ModelOperation;
@@ -116,6 +121,8 @@ import udmi.schema.Credential;
 import udmi.schema.Envelope.SubFolder;
 import udmi.schema.ExecutionConfiguration;
 import udmi.schema.GatewayModel;
+import udmi.schema.IotAccess.IotProvider;
+import udmi.schema.LinkExternalsModel;
 import udmi.schema.Metadata;
 import udmi.schema.SetupUdmiConfig;
 import udmi.schema.SiteMetadata;
@@ -145,6 +152,7 @@ public class Registrar {
   private static final long DELETE_FLUSH_DELAY_MS = 10 * SEC_TO_MS;
   public static final String REGISTRAR_TOOL_NAME = "registrar";
   private static final int UNBIND_SET_SIZE = 1000;
+  public static final int BATCH_REPORT_SIZE = 100;
   private boolean autoAltRegistry;
   private final Map<String, JsonSchema> schemas = new HashMap<>();
   private final String generation = JsonUtil.isoConvert();
@@ -154,15 +162,20 @@ public class Registrar {
       "bin/registrar site_spec [options] [devices...]");
   private final CommandLineProcessor commandLineProcessor = new CommandLineProcessor(this,
       usageForms);
+  private final AtomicInteger updatedDevices = new AtomicInteger();
+  private final Map<String, ExternalProcessor> processors = new ConcurrentHashMap<>();
+  private Map<Credential, Set<String>> credentialDevices;
   private CloudIotManager cloudIotManager;
   private File schemaBase;
   private PubSubPusher updatePusher;
   private PubSubPusher feedPusher;
   private Map<String, LocalDevice> allDevices;
   private Map<String, LocalDevice> workingDevices;
+  private Set<String> changedDevices;
   private Set<String> extraDevices;
   private String projectId;
   private boolean updateCloudIoT;
+  private boolean dryRun;
   private Duration idleLimit;
   private Metadata siteDefaults;
   private Map<String, CloudModel> cloudModels;
@@ -177,12 +190,27 @@ public class Registrar {
   private boolean metadataModelOut;
   private int createRegistries = -1;
   private int runnerThreads = 5;
+  private int bindingThreads = -1;
   private ExecutorService executor;
   private List<Future<?>> executing = new ArrayList<>();
   private SiteModel siteModel;
   private boolean queryOnly;
   private boolean strictWarnings;
   private boolean doNotUpdate;
+  private boolean expandDependencies;
+  private boolean updateMetadata;
+  private String currentRunTimestamp;
+  private String lastRunTimestamp;
+  private boolean optimizeRun;
+  private final Map<ModelOperation, AtomicInteger> operationCounts = new ConcurrentHashMap<>();
+
+  private void recordOperation(ModelOperation op, int count) {
+    operationCounts.computeIfAbsent(op, k -> new AtomicInteger()).addAndGet(count);
+  }
+
+  private void recordOperation(ModelOperation op) {
+    recordOperation(op, 1);
+  }
 
   /**
    * Main entry point for registrar.
@@ -214,7 +242,6 @@ public class Registrar {
   }
 
   @SuppressWarnings("unchecked")
-  @NotNull
   private static Map<String, String> getErrorKeyMap(Map<String, Object> resultMap,
       String errorKey) {
     return (Map<String, String>) resultMap.computeIfAbsent(errorKey, cat -> new TreeMap<>());
@@ -233,7 +260,15 @@ public class Registrar {
     return UDMI_ROOT.getAbsolutePath();
   }
 
-  Registrar processArgs(List<String> argListRaw) {
+  /**
+   * process the arguments and create new SiteModel.
+   *
+   * <p/>argumentListRaw includes: site_path project_spec deviceList
+   *
+   * @param argListRaw raw list of arguments to process
+   * @return Registrar Instance
+   */
+  public Registrar processArgs(List<String> argListRaw) {
     List<String> argList = new ArrayList<>(argListRaw);
     if (argList.size() == 1 && new File(argList.get(0)).isDirectory()) {
       // Add implicit NO_SITE site spec for local-only site model processing.
@@ -255,10 +290,27 @@ public class Registrar {
     return this;
   }
 
+  @CommandLineOption(short_form = "-o", arg_name = "optimize",
+      description = "Only process devices updated after the last run")
+  private void setOptimizeRun() {
+    this.optimizeRun = true;
+  }
+
+  @CommandLineOption(short_form = "-u", description = "Update metadata.json")
+  private void setUpdateMetadata() {
+    this.updateMetadata = true;
+  }
+
   @CommandLineOption(short_form = "-q", description = "Query only")
   private void setQueryOnly() {
     this.queryOnly = true;
     this.updateCloudIoT = false;
+  }
+
+  @CommandLineOption(short_form = "-j", description = "Dry run (just check): log what would "
+      + "happen without making changes")
+  private void setDryRun() {
+    this.dryRun = true;
   }
 
   @CommandLineOption(short_form = "-b", description = "Block unknown devices")
@@ -282,6 +334,16 @@ public class Registrar {
       description = "Set number of runner threads")
   private void setRunnerThreads(String argValue) {
     runnerThreads = Integer.parseInt(argValue);
+  }
+
+  @CommandLineOption(short_form = "-N", arg_name = "threads",
+      description = "Set number of binding threads")
+  private void setBindingThreads(String argValue) {
+    bindingThreads = Integer.parseInt(argValue);
+  }
+
+  private int getBindingThreads() {
+    return bindingThreads > 0 ? bindingThreads : runnerThreads;
   }
 
   @CommandLineOption(short_form = "-d", description = "Delete (known) devices")
@@ -323,7 +385,12 @@ public class Registrar {
     }
   }
 
-  Registrar execute() {
+  /**
+   * runs the registrar.
+   *
+   * @return registrar instance
+   */
+  public Registrar execute() {
     execute(null);
     maybeProcessAltRegistry();
     return this;
@@ -337,7 +404,7 @@ public class Registrar {
       }
       if (schemaBase == null) {
         // Use the proper (relative) tool root directory for unit tests.
-        setToolRoot(MOCK_PROJECT.equals(projectId) ? ".." : defaultToolRoot());
+        setToolRoot(isMockProject() ? ".." : defaultToolRoot());
       }
       loadSiteDefaults();
       if (createRegistries >= 0) {
@@ -355,6 +422,38 @@ public class Registrar {
     } finally {
       shutdown();
     }
+  }
+
+  private void loadSiteRegistrationTimestamps() {
+    currentRunTimestamp = isoConvert(Instant.now());
+
+    File registrationHistory = new File(siteDir, SiteModel.REGISTRATION_SUMMARY_BASE + ".json");
+    lastRunTimestamp = catchToNull(() -> asMap(registrationHistory).get(TIMESTAMP_KEY).toString());
+  }
+
+  private void updateDeviceMetadata(String deviceId) {
+    checkNotNull(projectId, "can't update metadata: cloud project not defined");
+
+    CloudModel registeredDevice = cloudModels.get(deviceId);
+    if (registeredDevice == null) {
+      return;
+    }
+    Metadata localMetadata = workingDevices.get(deviceId).getMetadata();
+    if (localMetadata.cloud == null) {
+      localMetadata.cloud = new CloudModel();
+    }
+    String registeredId = registeredDevice.num_id;
+    if (!Common.EMPTY_RETURN_RECEIPT.equals(registeredId)
+        && !registeredId.equals(localMetadata.cloud.num_id)) {
+      System.err.printf("Updating device %s num_id %s -> %s%n",
+          deviceId, localMetadata.cloud.num_id, registeredId);
+      localMetadata.cloud.num_id = registeredId;
+      updatedDevices.incrementAndGet();
+    }
+  }
+
+  private boolean isMockProject() {
+    return MOCK_PROJECT.equals(projectId) || MOCK_CLEAN.equals(projectId);
   }
 
   @VisibleForTesting
@@ -447,8 +546,14 @@ public class Registrar {
     errorSummary.forEach((key, value) -> System.err.println(
         "  Device " + key + ": " + getErrorSummaryDetail(value)));
     System.err.println("Out of " + workingDevices.size() + " total.");
+    if (!operationCounts.isEmpty()) {
+      System.err.println("Operations:");
+      operationCounts.forEach((op, count) -> System.err.println(
+          "  " + op + ": " + count.get()));
+    }
     // WARNING! entries inserted into `errorSummary` ABOVE this comment must have a map value ^^^^^^
     errorSummary.put(CLOUD_VERSION_KEY, getCloudVersionInfo());
+    errorSummary.put(TIMESTAMP_KEY, currentRunTimestamp);
     lastErrorSummary = errorSummary;
     errorSummary.put(UDMI_VERSION_KEY, Common.getUdmiVersion());
     ifNotNullThen(siteModel.siteMetadataExceptionMap,
@@ -477,22 +582,38 @@ public class Registrar {
   }
 
   private void setSiteModel(SiteModel siteModel) {
+    checkState(this.siteModel == null, "site model already defined");
     siteModel.loadSiteMetadata();
     this.siteModel = siteModel;
     ifTrueThen(strictWarnings, siteModel::setStrictWarnings);
+    initializeExternalProcessors(siteModel);
+  }
+
+  private synchronized void initializeExternalProcessors(SiteModel siteModel) {
+    Map<String, ? extends ExternalProcessor> created = ExternalProcessor.PROCESSORS.stream()
+        .map(p -> {
+          try {
+            return p.getConstructor(SiteModel.class).newInstance(siteModel);
+          } catch (Exception e) {
+            throw new RuntimeException("While initializing " + p, e);
+          }
+        }).collect(Collectors.toMap(ExternalProcessor::getName, Function.identity()));
+    checkState(created.size() == ExternalProcessor.PROCESSORS.size(), "size mismatch");
+    ifNotEmptyThrow(processors.keySet(), p -> "Processors already initialized!");
+    processors.putAll(created);
   }
 
   @CommandLineOption(short_form = "-s", arg_name = "site_path", description = "Set site path")
   private void setSitePath(String sitePath) {
     checkNotNull(SCHEMA_NAME, "schemaName not set yet");
     siteDir = new File(sitePath);
-    setSiteModel(ofNullable(siteModel).orElseGet(() -> new SiteModel(sitePath)));
+    ifNullThen(siteModel, () -> setSiteModel(new SiteModel(sitePath)));
     File summaryBase = new File(siteDir, SiteModel.REGISTRATION_SUMMARY_BASE);
     File parentFile = summaryBase.getParentFile();
     if (!parentFile.isDirectory() && !parentFile.mkdirs()) {
       throw new IllegalStateException("Could not create directory " + parentFile.getAbsolutePath());
     }
-
+    loadSiteRegistrationTimestamps();
     summarizers.addAll(SUMMARIZERS.entrySet().stream().map(factory -> {
       try {
         Summarizer summarizer = factory.getValue().getDeclaredConstructor().newInstance();
@@ -536,12 +657,14 @@ public class Registrar {
 
   private void processAllDevices(Runnable modelMunger) {
     allDevices = loadAllDevices();
+    changedDevices = loadChangedDevices();
     Set<String> explicitDevices = getExplicitDevices();
     try {
       workingDevices = instantiateExtras
           ? loadExtraDevices(explicitDevices) : getLocalDevices(explicitDevices);
       ifNotNullThen(modelMunger, Runnable::run);
       initializeLocalDevices();
+      updateExplicitDevices(explicitDevices, workingDevices);
       cloudModels = ifNotNullGet(fetchCloudModels(), devices -> new ConcurrentHashMap<>(devices));
       if (deleteDevices || expungeDevices) {
         deleteCloudDevices();
@@ -577,11 +700,14 @@ public class Registrar {
         total += processDevices(targetDevices);
       }
 
+      System.err.printf("Updated %d device metadata files.%n", updatedDevices.get());
       System.err.printf("Finished processing %d/%d devices.%n", total, targetDevices.size());
 
       if (updateCloudIoT) {
         bindGatewayDevices(targetLocals);
       }
+
+      finalizeLocalDevices();
 
       if (cloudModels != null && !isTargeted && !instantiateExtras) {
         extraDevices = processExtraDevices(difference(cloudModels.keySet(), targetDevices));
@@ -591,6 +717,11 @@ public class Registrar {
     }
   }
 
+  private void updateExplicitDevices(Set<String> explicitDevices,
+      Map<String, LocalDevice> workingDevices) {
+    ifNotNullThen(explicitDevices, () -> explicitDevices.addAll(workingDevices.keySet()));
+  }
+
   private Map<String, LocalDevice> loadAllDevices() {
     checkNotNull(siteDir, "missing site directory");
     File devicesDir = new File(siteDir, DEVICES_DIR);
@@ -598,6 +729,21 @@ public class Registrar {
       throw new RuntimeException("Not a valid directory: " + devicesDir.getAbsolutePath());
     }
     return loadDevices(SiteModel.listDevices(devicesDir));
+  }
+
+  private Set<String> loadChangedDevices() {
+    if (optimizeRun && lastRunTimestamp != null) {
+      System.err.println("Collecting devices changed after " + lastRunTimestamp);
+      return allDevices.entrySet().stream()
+          .filter(entry -> {
+            LocalDevice device = entry.getValue();
+            Metadata metadata = device.getMetadata();
+            return metadata == null || metadata.timestamp == null
+                || metadata.timestamp.toInstant().isAfter(Instant.parse(lastRunTimestamp));
+          })
+          .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)).keySet();
+    }
+    return allDevices.keySet();
   }
 
   private int processDevices(Set<String> deviceSet) {
@@ -734,7 +880,7 @@ public class Registrar {
     int totalCount = devices.size();
     devices.forEach(id -> parallelExecute(() -> deleteSingleDevice(devices, accumulator, id)));
     System.err.println("Waiting for device deletion completion...");
-    dynamicTerminate(totalCount);
+    dynamicTerminate();
   }
 
   private void deleteSingleDevice(Set<String> allDevices, AtomicInteger count, String id) {
@@ -751,20 +897,33 @@ public class Registrar {
     try {
       Set<String> unbindIds = catchToNull(
           () -> new HashSet<>(workingDevices.get(deviceId).getMetadata().gateway.proxy_ids));
-      cloudIotManager.deleteDevice(deviceId, unbindIds);
+      if (dryRun) {
+        System.err.println("Dry run: would delete device " + deviceId);
+      } else {
+        cloudIotManager.deleteDevice(deviceId, unbindIds);
+      }
+      recordOperation(ModelOperation.DELETE);
     } catch (DeviceGatewayBoundException boundException) {
       CloudModel cloudModel = boundException.getCloudModel();
       if (cloudModel.resource_type == Resource_type.GATEWAY) {
         Set<String> proxyIds = new HashSet<>(cloudModel.gateway.proxy_ids);
         System.err.printf("Retrying delete %s with bound devices: %s%n", deviceId,
             setOrSize(proxyIds));
-        cloudIotManager.deleteDevice(deviceId, proxyIds);
+        if (dryRun) {
+          System.err.println("Dry run: would delete device " + deviceId);
+        } else {
+          cloudIotManager.deleteDevice(deviceId, proxyIds);
+        }
       } else if (cloudModel.resource_type == Resource_type.DIRECT) {
         Set<String> gatewayIds = ImmutableSet.of(cloudModel.gateway.gateway_id);
         System.err.printf("Unbinding %s from bound gateways: %s%n", deviceId, gatewayIds);
         unbindDevicesFromGateways(allDevices, gatewayIds);
         System.err.printf("Retrying delete %s%n", deviceId);
-        cloudIotManager.deleteDevice(deviceId, null);
+        if (dryRun) {
+          System.err.println("Dry run: would delete device " + deviceId);
+        } else {
+          cloudIotManager.deleteDevice(deviceId, null);
+        }
       } else {
         throw new RuntimeException("Unknown cloud model resource type", boundException);
       }
@@ -791,7 +950,13 @@ public class Registrar {
           Set<String> limitedSet = limitSetSize(toUnbind, UNBIND_SET_SIZE);
           ifTrueThen(multiple, () -> System.err.printf("Unbinding subset from %s: %s%n", gatewayId,
               setOrSize(limitedSet)));
-          cloudIotManager.bindDevices(limitedSet, gatewayId, false);
+          if (dryRun) {
+            System.err.printf("Dry run: would unbind %s from %s%n", setOrSize(limitedSet),
+                gatewayId);
+          } else {
+            cloudIotManager.bindDevices(limitedSet, gatewayId, false);
+          }
+          recordOperation(ModelOperation.UNBIND, limitedSet.size());
           toUnbind.removeAll(limitedSet);
         }
       }
@@ -834,6 +999,7 @@ public class Registrar {
         System.err.printf("Processed %s (%d/%d) in %.03fs (%s)%n", localName, count, totalCount,
             seconds, created ? "add" : "update");
       }
+      ifTrueThen(updateMetadata, () -> updateDeviceMetadata(localName));
     } catch (Exception e) {
       System.err.printf("Error processing %s: %s%n", localDevice.getDeviceId(), e);
       localDevice.captureError(ExceptionCategory.registering, e);
@@ -886,6 +1052,7 @@ public class Registrar {
   }
 
   private boolean pushToCloudIoT(String localName, LocalDevice localDevice) {
+    System.err.println("Registering device " + localName + " with IoT provider...");
     boolean created = updateCloudIoT && updateCloudIoT(localDevice);
     CloudModel device =
         checkNotNull(fetchDevice(localName, created), "missing device " + localName);
@@ -896,11 +1063,26 @@ public class Registrar {
   private boolean updateCloudIoT(LocalDevice localDevice) {
     String localName = localDevice.getDeviceId();
     fetchDevice(localName, false);
-    CloudDeviceSettings localDeviceSettings = localDevice.getSettings();
     if (preDeleteDevice(localName)) {
       System.err.println("Deleting to incite recreation " + localName);
-      cloudIotManager.deleteDevice(localName, null);
+      if (dryRun) {
+        System.err.println("Dry run: would delete device " + localName);
+      } else {
+        cloudIotManager.deleteDevice(localName, null);
+      }
+      recordOperation(ModelOperation.DELETE);
     }
+
+    ModelOperation registerOp = cloudIotManager.getRegisteredDevice(localName) == null
+        ? ModelOperation.CREATE : ModelOperation.UPDATE;
+
+    if (dryRun) {
+      System.err.println("Dry run: would register device " + localName);
+      recordOperation(registerOp);
+      return registerOp == ModelOperation.CREATE;
+    }
+    recordOperation(registerOp);
+    CloudDeviceSettings localDeviceSettings = localDevice.getSettings();
     return cloudIotManager.registerDevice(localName, localDeviceSettings);
   }
 
@@ -913,6 +1095,9 @@ public class Registrar {
   }
 
   private Set<String> getExplicitDevices() {
+    if (deviceList == null && optimizeRun) {
+      return new HashSet<>(changedDevices);
+    }
     if (deviceList == null) {
       return null;
     }
@@ -959,7 +1144,12 @@ public class Registrar {
     try {
       if (blockUnknown && !isBlocked) {
         System.err.println("Blocking device " + extraName);
-        cloudIotManager.blockDevice(extraName, true);
+        if (dryRun) {
+          System.err.println("Dry run: would block device " + extraName);
+        } else {
+          cloudIotManager.blockDevice(extraName, true);
+        }
+        recordOperation(ModelOperation.BLOCK);
         cloudModel.blocked = true;
       }
       cloudModel.operation = ifTrueGet(cloudModel.blocked, ModelOperation.BLOCK,
@@ -995,8 +1185,8 @@ public class Registrar {
       ifNotTrueThen(augmentedModel.equals(loadFile(CloudModel.class, modelFile)), () -> {
         System.err.println("Writing extra device model to " + devPath);
         writeFile(augmentedModel, modelFile);
-        updateExtraMetadata(extraName, extraDir);
       });
+      updateExtraMetadata(extraName, extraDir);
     } catch (Exception e) {
       throw new RuntimeException("Writing extra device data " + extraDir.getAbsolutePath(), e);
     }
@@ -1098,16 +1288,26 @@ public class Registrar {
             int count = bindingCount.incrementAndGet();
             System.err.printf("Binding %s to %s (%d/%d)%n", setOrSize(toBind), gatewayId, count,
                 gatewayBindings.size());
-            cloudIotManager.bindDevices(toBind, gatewayId, true);
+            if (dryRun) {
+              System.err.printf("Dry run: would bind %s to %s%n", setOrSize(toBind), gatewayId);
+            } else {
+              // TODO: Put a proper fix and not depend on specific fixes for testing.
+              boolean isLocal =
+                  cloudIotManager.executionConfiguration.iot_provider == IotProvider.MQTT
+                  || cloudIotManager.executionConfiguration.iot_provider == IotProvider.ZANZARA
+                  || cloudIotManager.executionConfiguration.iot_provider == IotProvider.IMPLICIT;
+              cloudIotManager.bindDevices(isLocal ? proxyIds : toBind, gatewayId, true);
+            }
+            recordOperation(ModelOperation.BIND, toBind.size());
           } catch (Exception e) {
             proxiedDevices.forEach(localDevice ->
                 localDevice.captureError(ExceptionCategory.binding, e));
           }
-        });
+        }, getBindingThreads());
       });
 
       System.err.printf("Waiting for device binding...%n");
-      dynamicTerminate();
+      dynamicTerminate(gatewayBindings.size(), getBindingThreads());
 
       Duration between = Duration.between(start, Instant.now());
       double seconds = between.getSeconds() + between.getNano() / 1e9;
@@ -1125,7 +1325,7 @@ public class Registrar {
       executor.shutdown();
       System.err.printf("Waiting for tasks to complete...%n");
       while (!executor.awaitTermination(QuerySpeed.SHORT.seconds(), TimeUnit.SECONDS)
-        && cloudIotManager.stillActive()) {
+          && cloudIotManager.stillActive()) {
         System.err.println("Still waiting...");
       }
       if (!executor.isTerminated()) {
@@ -1137,27 +1337,37 @@ public class Registrar {
     }
   }
 
-  private synchronized void dynamicTerminate(int expected) throws InterruptedException {
+  private synchronized void dynamicTerminate(int expected, int threads) {
     try {
       if (executor == null) {
         return;
       }
       executor.shutdown();
-      int timeout = (int) (ceil(expected / (double) runnerThreads) * EACH_ITEM_TIMEOUT_SEC) + 1;
+      int timeout = (int) (ceil(expected / (double) threads) * EACH_ITEM_TIMEOUT_SEC) + 1;
       System.err.printf("Waiting %ds for %d tasks to complete...%n", timeout, expected);
       if (!executor.awaitTermination(timeout, TimeUnit.SECONDS)) {
         throw new RuntimeException("Incomplete executor termination after " + timeout + "s");
       }
+    } catch (InterruptedException e) {
+      throw new RuntimeException("Interrupted while waiting for termination", e);
     } finally {
       executor = null;
       executing = null;
     }
   }
 
-  private synchronized void parallelExecute(Runnable runnable) {
-    ifNullThen(executor, () -> executor = Executors.newFixedThreadPool(runnerThreads));
+  private synchronized void dynamicTerminate(int expected) {
+    dynamicTerminate(expected, runnerThreads);
+  }
+
+  private synchronized void parallelExecute(Runnable runnable, int threads) {
+    ifNullThen(executor, () -> executor = Executors.newFixedThreadPool(threads));
     ifNullThen(executing, () -> executing = new ArrayList<>());
     executing.add(executor.submit(runnable));
+  }
+
+  private synchronized void parallelExecute(Runnable runnable) {
+    parallelExecute(runnable, runnerThreads);
   }
 
   private Set<Entry<String, String>> getBindings(Set<String> deviceSet, LocalDevice localDevice) {
@@ -1209,20 +1419,6 @@ public class Registrar {
     return allDevices.entrySet().stream()
         .filter(entry -> specifiedDevices == null || specifiedDevices.contains(entry.getKey()))
         .collect(Collectors.toMap(Entry::getKey, Entry::getValue));
-  }
-
-  private void initializeSettings(Map<String, LocalDevice> localDevices) {
-    localDevices.values().forEach(LocalDevice::initializeSettings);
-  }
-
-  private void validateSamples(Map<String, LocalDevice> localDevices) {
-    for (LocalDevice device : localDevices.values()) {
-      try {
-        device.validateSamples();
-      } catch (Exception e) {
-        device.captureError(ExceptionCategory.samples, e);
-      }
-    }
   }
 
   private void preprocessMetadata(Map<String, LocalDevice> workingDevices) {
@@ -1298,45 +1494,22 @@ public class Registrar {
     });
   }
 
-  private void validateExpected(Map<String, LocalDevice> localDevices) {
-    for (LocalDevice device : localDevices.values()) {
-      try {
-        device.validateExpectedFiles();
-      } catch (Exception e) {
-        device.captureError(ExceptionCategory.files, e);
+  private void validateKeys(LocalDevice localDevice) {
+    if (!localDevice.isDirect()) {
+      return;
+    }
+    CloudDeviceSettings settings = localDevice.getSettings();
+    String deviceName = localDevice.getDeviceId();
+    for (Credential credential : settings.credentials) {
+      Set<String> duplicates = credentialDevices.get(credential);
+      if (duplicates != null && duplicates.size() > 1) {
+        String primaryDevice = duplicates.iterator().next();
+        if (!deviceName.equals(primaryDevice)) {
+          throw new RuntimeException(format(
+              "Duplicate credentials found with %s", primaryDevice));
+        }
       }
     }
-  }
-
-  private void writeNormalized(Map<String, LocalDevice> localDevices) {
-    for (String deviceName : localDevices.keySet()) {
-      try {
-        localDevices.get(deviceName).writeNormalized();
-      } catch (Exception e) {
-        throw new RuntimeException("While writing normalized " + deviceName, e);
-      }
-    }
-  }
-
-  private void validateKeys(Map<String, LocalDevice> localDevices) {
-    Map<Credential, String> usedCredentials = new HashMap<>();
-    localDevices.values().stream()
-        .filter(LocalDevice::isDirect)
-        .forEach(
-            localDevice -> {
-              CloudDeviceSettings settings = localDevice.getSettings();
-              String deviceName = localDevice.getDeviceId();
-              for (Credential credential : settings.credentials) {
-                String previous = usedCredentials.put(credential, deviceName);
-                if (previous != null) {
-                  RuntimeException exception =
-                      new RuntimeException(
-                          format(
-                              "Duplicate credentials found for %s & %s", previous, deviceName));
-                  localDevice.captureError(ExceptionCategory.credentials, exception);
-                }
-              }
-            });
   }
 
   private Map<String, LocalDevice> loadDevices(List<String> devices) {
@@ -1349,35 +1522,111 @@ public class Registrar {
     System.err.printf("Initializing %d local devices...%n", workingDevices.size());
     initializeDevices(workingDevices);
     preprocessMetadata(workingDevices);
-    initializeSettings(workingDevices);
-    writeNormalized(workingDevices);
-    previewModels(workingDevices);
-    validateExpected(workingDevices);
-    validateSamples(workingDevices);
-    validateKeys(workingDevices);
+    expandDependencies(workingDevices);
+    allWorking(LocalDevice::initializeSettings, "initialize settings", ExceptionCategory.settings);
   }
 
-  private void previewModels(Map<String, LocalDevice> localDevices) {
-    if (!metadataModelOut) {
+  private void finalizeLocalDevices() {
+    previewModelRegistry();
+
+    allWorking(LocalDevice::writeNormalized, "writing normalized", ExceptionCategory.metadata);
+    allWorking(this::previewModel, "previewing model", ExceptionCategory.updating);
+    allWorking(LocalDevice::validateExpectedFiles, "validating expected", ExceptionCategory.files);
+    allWorking(LocalDevice::validateSamples, "validate samples", ExceptionCategory.samples);
+
+    credentialDevices = new HashMap<>();
+    workingDevices.values().forEach(device -> {
+      if (device.isDirect()) {
+        for (Credential cred : device.getSettings().credentials) {
+          credentialDevices.computeIfAbsent(cred, k -> new TreeSet<>()).add(device.getDeviceId());
+        }
+      }
+    });
+
+    allWorking(this::validateKeys, "validating keys", ExceptionCategory.credentials);
+    allWorking(this::processExternals, "process externals", ExceptionCategory.externals);
+  }
+
+  private void processExternals(LocalDevice localDevice) {
+    List<Exception> exceptionList = new ArrayList<>();
+    Map<String, LinkExternalsModel> ext = catchToNull(() -> localDevice.getMetadata().externals);
+    ifNotNullThen(ext, map -> map.forEach((key, value) -> {
+      try {
+        requireNonNull(processors.get(key), "Missing external processor " + key).process(
+            localDevice);
+      } catch (Exception e) {
+        exceptionList.add(e);
+      }
+    }));
+    ExceptionList.throwIfNotEmpty(exceptionList);
+  }
+
+  private void allWorking(Consumer<LocalDevice> action, String message,
+      ExceptionCategory category) {
+    AtomicInteger actionCount = new AtomicInteger();
+    int setSize = workingDevices.size();
+    System.err.printf("Starting %s for %d devices...%n", message, setSize);
+    workingDevices.values().forEach(localDevice -> parallelExecute(() -> {
+      int baseCount = actionCount.incrementAndGet();
+      ifTrueThen(baseCount % BATCH_REPORT_SIZE == 0, () -> System.err.printf(
+          "Execute %s for device %d/%d...%n", message, baseCount, setSize));
+      try {
+        action.accept(localDevice);
+      } catch (Exception e) {
+        localDevice.captureError(category, e);
+      }
+    }));
+
+    dynamicTerminate(setSize);
+    ifTrueThen(setSize > BATCH_REPORT_SIZE,
+        () -> System.err.printf("Finished %s for %d devices.%n", message, setSize));
+  }
+
+  @CommandLineOption(short_form = "-T", description = "Expand transitive dependencies")
+  private void setExpandDependencies() {
+    expandDependencies = true;
+  }
+
+  private void expandDependencies(Map<String, LocalDevice> workingDevices) {
+    if (!expandDependencies) {
       return;
     }
 
-    cloudIotManager.updateRegistry(getSiteMetadata(), ModelOperation.PREVIEW);
+    Set<String> proxyIds = workingDevices.values().stream()
+        .filter(LocalDevice::isGateway)
+        .map(LocalDevice::getProxyIds)
+        .flatMap(List::stream).collect(Collectors.toSet());
+    SetView<String> newDevices = difference(proxyIds, workingDevices.keySet());
+    Map<String, LocalDevice> newEntries = newDevices.stream()
+        .collect(Collectors.toMap(Function.identity(), allDevices::get));
+    workingDevices.putAll(newEntries);
+    initializeDevices(newEntries);
+    System.err.printf("Added %d transitive devices to working set.%n", newDevices.size());
+  }
 
-    try {
-      AtomicInteger previewCount = new AtomicInteger();
-      localDevices.forEach((id, device) -> parallelExecute(() -> {
-        int baseCount = previewCount.getAndIncrement();
-        ifTrueThen(baseCount % 100 == 0,
-            () -> System.err.printf("Sending preview for device %d/%d...%n", baseCount + 1,
-                localDevices.size()));
-        cloudIotManager.updateDevice(id, device.getSettings(), ModelOperation.PREVIEW);
-      }));
-      dynamicTerminate(localDevices.size());
-      System.err.printf("Finished sending device preview for %d devices.%n", localDevices.size());
-    } catch (Exception e) {
-      throw new RuntimeException("While previewing local devices", e);
-    }
+  private void previewModelRegistry() {
+    ifTrueThen(metadataModelOut,
+        () -> {
+          if (dryRun) {
+            System.err.println("Dry run: would update registry (PREVIEW)");
+          } else {
+            cloudIotManager.updateRegistry(getSiteMetadata(), ModelOperation.PREVIEW);
+          }
+          recordOperation(ModelOperation.PREVIEW);
+        });
+  }
+
+  private void previewModel(LocalDevice device) {
+    ifTrueThen(metadataModelOut,
+        () -> {
+          if (dryRun) {
+            System.err.println("Dry run: would update device (PREVIEW)");
+          } else {
+            cloudIotManager.updateDevice(device.getDeviceId(), device.getSettings(),
+                ModelOperation.PREVIEW);
+          }
+          recordOperation(ModelOperation.PREVIEW);
+        });
   }
 
   private void initializeDevices(Map<String, LocalDevice> localDevices) {
@@ -1444,7 +1693,7 @@ public class Registrar {
     strictWarnings = true;
     ifNotNullThen(siteModel, SiteModel::setStrictWarnings);
   }
-  
+
   private void loadSchema(String key) {
     File schemaFile = new File(schemaBase, key);
     try (InputStream schemaStream = Files.newInputStream(schemaFile.toPath())) {
@@ -1502,8 +1751,9 @@ public class Registrar {
     }
   }
 
-  public List<Object> getMockActions() {
-    return cloudIotManager.getMockActions();
+  @SuppressWarnings("unchecked")
+  public List<MockAction> getMockActions() {
+    return (List<MockAction>) (List<?>) cloudIotManager.getMockActions();
   }
 
   @CommandLineOption(short_form = "-a", arg_name = "alternate",

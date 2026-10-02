@@ -1,0 +1,200 @@
+#!/bin/bash -e
+
+# UUFI Test Client Logic
+# Performs: Handshake -> Config Update -> State Reply verification
+
+UDMI_ROOT=$(dirname $0)/..
+cd ${UDMI_ROOT}
+source etc/shell_common.sh
+
+HOST=${1:-localhost}
+PORT=${2:-8883}
+USER=${3:-rocket}
+PASS=${4:-monkey}
+CLIENT_ID="uufi-test-client"
+SITE_MODEL=${5:-sites/udmi_site_model}
+TXN_ID="TXN-$(date +%s)"
+DUT_ID="AHU-1"
+REGISTRY_ID="ZZ-TRI-FECTA"
+
+CA_CERT="$SITE_MODEL/reflector/ca.crt"
+echo "Waiting for non-empty CA certificate $CA_CERT..."
+TIMEOUT=60
+while [[ (! -f $CA_CERT || ! -s $CA_CERT) && $TIMEOUT -gt 0 ]]; do
+    sleep 1
+    TIMEOUT=$((TIMEOUT - 1))
+done
+
+MQTT_ARGS="-h $HOST -p $PORT -u $USER -P $PASS --cafile $CA_CERT --cert $SITE_MODEL/reflector/rsa_private.crt --key $SITE_MODEL/reflector/rsa_private.pem -i $CLIENT_ID --insecure"
+
+# 1. UUFI Handshake
+REPLY_FILE=$(mktemp)
+mosquitto_sub $MQTT_ARGS -t "/uufi/c/config/udmi" -F "%p" | while read -r line; do
+    echo "$line" > "$REPLY_FILE"
+    REPLY_TXN=$(jq -r .payload.reply.transaction_id < "$REPLY_FILE" 2>/dev/null)
+    REPLY_PRINCIPAL=$(jq -r .principal < "$REPLY_FILE" 2>/dev/null)
+    REPLY_SOURCE=$(jq -r .source < "$REPLY_FILE" 2>/dev/null)
+    if [[ "$REPLY_TXN" == "$TXN_ID" ]]; then
+        if [[ "$REPLY_PRINCIPAL" != "$CLIENT_ID" ]]; then
+            echo "ERROR: Expected principal $CLIENT_ID in handshake reply but got $REPLY_PRINCIPAL" >&2
+            exit 1
+        fi
+        if [[ "$REPLY_SOURCE" != "udmis" ]]; then
+            echo "ERROR: Expected source udmis in handshake reply but got $REPLY_SOURCE" >&2
+            exit 1
+        fi
+        kill -USR1 $$ 2>/dev/null || true
+        exit 0
+    fi
+done &
+SUB_PID=$!
+
+GOT_HANDSHAKE=0
+trap "GOT_HANDSHAKE=1" USR1
+sleep 2
+
+echo "Sending UUFI handshake Step 1 (State Declaration)... (txn: $TXN_ID)"
+HANDSHAKE_STATE="{\"subType\":\"state\",\"subFolder\":\"udmi\",\"version\":\"1.5.2\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"setup\":{\"functions_ver\":9,\"transaction_id\":\"$TXN_ID\",\"msg_source\":\"$CLIENT_ID\"}}"
+echo "Handshake payload: $HANDSHAKE_STATE"
+mosquitto_pub $MQTT_ARGS -t "/uufi/c/state/udmi" -m "$HANDSHAKE_STATE"
+
+TIMEOUT=30
+while [ $GOT_HANDSHAKE -eq 0 ] && [ $TIMEOUT -gt 0 ]; do
+    echo "Waiting for handshake reply... ($TIMEOUT)"
+    sleep 1
+    TIMEOUT=$((TIMEOUT - 1))
+done
+
+if [ $GOT_HANDSHAKE -eq 0 ]; then
+    echo "Timed out waiting for handshake reply (txn: $TXN_ID)"
+    kill $SUB_PID 2>/dev/null || true
+    exit 1
+fi
+kill $SUB_PID 2>/dev/null || true
+echo "Handshake SUCCESS"
+
+# 2. Comprehensive Exchange (Config Update -> State Reply)
+echo "Starting comprehensive exchange test..."
+STATE_REPLY_FILE=$(mktemp)
+# Subscribe to the UUFI state topic for the DUT
+# UDMIS will wrap incoming state and publish it here
+echo "Subscribing to /uufi/r/$REGISTRY_ID/d/$DUT_ID/c/state/pointset..."
+mosquitto_sub $MQTT_ARGS -i "${CLIENT_ID}_sub" -t "/uufi/r/$REGISTRY_ID/d/$DUT_ID/c/state/pointset" -F "%p" | while read -r line; do
+    echo "Received UUFI state update: $line"
+    echo "$line" > "$STATE_REPLY_FILE"
+    # We look for the updated point value we're about to send in config
+    VALUE_STATE=$(jq -r .payload.points.filter_differential_pressure_setpoint.value_state < "$STATE_REPLY_FILE" 2>/dev/null)
+    STATE_SOURCE=$(jq -r .source < "$STATE_REPLY_FILE" 2>/dev/null)
+    if [[ "$VALUE_STATE" == "applied" ]]; then
+        if [[ "$STATE_SOURCE" != "udmis" ]]; then
+            echo "ERROR: Expected source udmis in state reply but got $STATE_SOURCE" >&2
+            exit 1
+        fi
+        echo "Found expected value_state applied with source udmis!"
+        kill -USR2 $$ 2>/dev/null || true
+        exit 0
+    fi
+done &
+SUB_STATE_PID=$!
+
+GOT_STATE=0
+trap "GOT_STATE=1" USR2
+sleep 2
+
+echo "Sending UUFI-wrapped Config Update for $DUT_ID..."
+# A config update request through UUFI
+# UDMIS should unwrap this and update the actual device config
+NEW_CONFIG="{\"subType\":\"config\",\"subFolder\":\"pointset\",\"deviceId\":\"$DUT_ID\",\"deviceRegistryId\":\"$REGISTRY_ID\",\"payload\":{\"version\":\"1.5.2\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"points\":{\"filter_differential_pressure_setpoint\":{\"set_value\":42}}}}"
+echo "Config update payload: $NEW_CONFIG"
+mosquitto_pub $MQTT_ARGS -i "${CLIENT_ID}_pub" -t "/uufi/c/config/pointset" -m "$NEW_CONFIG"
+
+echo "Waiting for State Update reply from $DUT_ID through UUFI..."
+TIMEOUT=60
+while [ $GOT_STATE -eq 0 ] && [ $TIMEOUT -gt 0 ]; do
+    echo "Waiting for state update... ($TIMEOUT)"
+    sleep 1
+    TIMEOUT=$((TIMEOUT - 1))
+done
+
+if [ $GOT_STATE -eq 0 ]; then
+    echo "Timed out waiting for State Update reply"
+    if [[ -f "$STATE_REPLY_FILE" && -s "$STATE_REPLY_FILE" ]]; then
+        echo "=== DIAGNOSTIC: Last received state update ==="
+        cat "$STATE_REPLY_FILE"
+        echo "=============================================="
+    else
+        echo "DIAGNOSTIC: No state update replies were received at all."
+    fi
+    kill $SUB_STATE_PID 2>/dev/null || true
+    exit 1
+fi
+
+kill $SUB_STATE_PID 2>/dev/null || true
+echo "Comprehensive Exchange SUCCESS: Received matching state update"
+
+# 3. System Model Update Test
+echo "Starting System Model Update test..."
+METADATA_FILE="$SITE_MODEL/devices/$DUT_ID/metadata.json"
+cp "$METADATA_FILE" "${METADATA_FILE}.bak"
+restore_metadata() {
+    mv "${METADATA_FILE}.bak" "$METADATA_FILE" 2>/dev/null || true
+}
+trap "restore_metadata; kill $SUB_PID $SUB_STATE_PID 2>/dev/null || true" EXIT
+
+MODEL_REPLY_FILE=$(mktemp)
+echo "Subscribing to /uufi/r/$REGISTRY_ID/d/$DUT_ID/c/model/system..."
+mosquitto_sub $MQTT_ARGS -i "${CLIENT_ID}_model_sub" -t "/uufi/r/$REGISTRY_ID/d/$DUT_ID/c/model/system" -F "%p" | while read -r line; do
+    echo "Received UUFI System Model update: $line"
+    echo "$line" > "$MODEL_REPLY_FILE"
+    VERSION_VAL=$(jq -r .payload.software.system_firmware < "$MODEL_REPLY_FILE" 2>/dev/null)
+    MODEL_SOURCE=$(jq -r .source < "$MODEL_REPLY_FILE" 2>/dev/null)
+    if [[ "$VERSION_VAL" == "v3" ]]; then
+        if [[ "$MODEL_SOURCE" != "site_trigger" ]]; then
+            echo "ERROR: Expected source site_trigger in model update but got $MODEL_SOURCE" >&2
+            exit 1
+        fi
+        echo "Found expected system_firmware version v3 in System Model with source site_trigger!"
+        kill -USR1 $$ 2>/dev/null || true
+        exit 0
+    fi
+done &
+SUB_MODEL_PID=$!
+
+GOT_MODEL=0
+trap "GOT_STATE=1" USR2
+trap "GOT_MODEL=1" USR1
+
+sleep 2
+
+echo "Triggering System Model update using site_trigger..."
+$UDMI_ROOT/bin/site_trigger update "$SITE_MODEL" "$DUT_ID" "system_firmware" "v3" "mqtt://$USER:$PASS@$HOST:$PORT"
+
+echo "Waiting for System Model Update on the bus..."
+TIMEOUT=30
+while [ $GOT_MODEL -eq 0 ] && [ $TIMEOUT -gt 0 ]; do
+    echo "Waiting for system model update... ($TIMEOUT)"
+    sleep 1
+    TIMEOUT=$((TIMEOUT - 1))
+done
+
+if [ $GOT_MODEL -eq 0 ]; then
+    echo "Timed out waiting for System Model Update"
+    if [[ -f "$MODEL_REPLY_FILE" && -s "$MODEL_REPLY_FILE" ]]; then
+        echo "=== DIAGNOSTIC: Last received system model update ==="
+        cat "$MODEL_REPLY_FILE"
+        echo "=============================================="
+    else
+        echo "DIAGNOSTIC: No system model updates were received at all."
+    fi
+    kill $SUB_MODEL_PID 2>/dev/null || true
+    restore_metadata
+    exit 1
+fi
+
+kill $SUB_MODEL_PID 2>/dev/null || true
+restore_metadata
+trap - EXIT
+echo "System Model Update SUCCESS: Received matching model update message on bus"
+
+echo "UUFI Comprehensive Integration Test PASSED"
+rm -f "$REPLY_FILE" "$STATE_REPLY_FILE" "$MODEL_REPLY_FILE"

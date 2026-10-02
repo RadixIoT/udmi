@@ -1,0 +1,18 @@
+#!/bin/bash -e
+#
+# Test runner for Mantis suite
+#
+
+ROOT_DIR=$(realpath $(dirname $0)/..)
+cd "$ROOT_DIR"
+
+if [ -d "venv" ]; then
+  PYTHON_BIN="venv/bin/python3"
+else
+  PYTHON_BIN="python3"
+fi
+
+export PYTHONPATH="$ROOT_DIR/common/src/main/python:$ROOT_DIR:${PYTHONPATH:-}"
+
+echo "Running Mantis unit and integration test suite..."
+$PYTHON_BIN -m pytest mantis/tests "$@"

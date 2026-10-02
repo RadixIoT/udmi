@@ -1,5 +1,5 @@
 {
-  "$udmi_version": "1.5.2",
+  "$udmi_version": "1.5.7",
   "title": "Localnet Config",
   "description": "Currently unused: request local network configuration",
   "type": "object",
@@ -8,6 +8,16 @@
   "properties": {
     "families": {
       "description": "Address family config for reporting.",
+      "existingJavaType": "java.util.HashMap<String, FamilyLocalnetConfig>",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9]*(_[a-z0-9]+)*$": {
+          "$ref": "file:config_localnet_family.json"
+        }
+      }
+    },
+    "networks": {
+      "description": "Network address family config for reporting.",
       "existingJavaType": "java.util.HashMap<String, FamilyLocalnetConfig>",
       "additionalProperties": false,
       "patternProperties": {

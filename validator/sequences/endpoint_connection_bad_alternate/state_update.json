@@ -1,0 +1,27 @@
+{
+  "system" : {
+    "last_config" : "TIMESTAMP",
+    "operation" : {
+      "operational" : true,
+      "last_start" : "TIMESTAMP",
+      "restart_count" : 1,
+      "mode" : "initial"
+    },
+    "serial_no" : "sequencer-19868",
+    "hardware" : {
+      "make" : "BOS",
+      "model" : "pubber"
+    },
+    "software" : {
+      "firmware" : "v1"
+    },
+    "status" : {
+      "message" : "success",
+      "category" : "system.config.apply",
+      "timestamp" : "TIMESTAMP",
+      "level" : 300
+    }
+  },
+  "timestamp" : "TIMESTAMP",
+  "version" : "1.5.3"
+}

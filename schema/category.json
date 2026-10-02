@@ -1,6 +1,7 @@
 {
-  "$udmi_version": "1.5.2",
+  "$udmi_version": "1.5.7",
   "title": "Category",
+    "$schema": "http://json-schema.org/draft-07/schema#",
   "$comment": "Auto-generated category mappings from bin/gencode_categories.",
   "type": "string",
   "oneOf": [
@@ -28,9 +29,14 @@
     { "pattern": "^discovery\\.device\\.enumerate$" },
     { "pattern": "^discovery\\.point\\.describe$" },
     { "pattern": "^mapping\\.device\\.apply$" },
+    { "pattern": "^blobset\\.blob$" },
+    { "pattern": "^blobset\\.blob\\.update$" },
     { "pattern": "^blobset\\.blob\\.receive$" },
     { "pattern": "^blobset\\.blob\\.fetch$" },
+    { "pattern": "^blobset\\.blob\\.parse$" },
     { "pattern": "^blobset\\.blob\\.apply$" },
+    { "pattern": "^blobset\\.blob\\.abort$" },
+    { "pattern": "^blobset\\.blob\\.rollback$" },
     { "pattern": "^validation\\.device\\.receive$" },
     { "pattern": "^validation\\.device\\.schema$" },
     { "pattern": "^validation\\.device\\.content$" },

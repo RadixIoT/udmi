@@ -20,7 +20,7 @@ class Status:
 
 @dataclasses.dataclass
 class DiscoverySystemSoftware:
-  firmware: str = None
+  firmware: str | None = None
 
 
 @dataclasses.dataclass
@@ -61,7 +61,8 @@ class DiscoveryPoint:
 class DiscoveryEvent:
   generation: str
   family: str
-  addr: str
+  addr: str | None = None
+  network: str | None = None
 
   version: str = "1.5.1"
   timestamp: datetime.datetime = dataclasses.field(

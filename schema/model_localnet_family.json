@@ -1,5 +1,5 @@
 {
-  "$udmi_version": "1.5.2",
+  "$udmi_version": "1.5.7",
   "title": "Family Localnet Model",
   "type": "object",
   "description": "The type of network",
@@ -9,7 +9,21 @@
     "addr": {
       "type": "string",
       "description": "The address of a device on the fieldbus/local network",
-      "examples": ["0x414889"]
+      "examples": ["192.168.1.3", "41489"],
+      "$presentation": {
+        "display": "show",
+        "style": "bold"
+      }
+    },
+    "unitid": {
+      "type": "string",
+      "description": "The slave unit ID of the device for protocol families like modbus",
+      "examples": ["1", "255"]
+    },
+    "network": {
+      "type": "string",
+      "description": "The network designator for this device in the family-defined format",
+      "examples": ["192.168.1.0/24", "12732"]
     },
     "adjunct": {
       "type": "object",
@@ -27,10 +41,16 @@
     },
     "parent_id": {
       "type": "string",
-      "description": "The device id of the network parent"
+      "description": "The device id of the node's parent"
+    },
+    "vendor_ref": {
+      "description": "If true, then the system should not try to validate the refs",
+      "type": "boolean"
     },
     "family": {
-      "type": "string"
+      "description": "The family designator, used only when the entry is not keyed in a family map",
+      "type": "string",
+      "examples": ["ipv4", "bacnet"]
     }
   }
 }

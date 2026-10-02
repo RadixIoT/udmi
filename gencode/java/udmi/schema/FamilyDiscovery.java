@@ -14,10 +14,6 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
  * 
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonPropertyOrder({
-    "addr",
-    "ref"
-})
 public class FamilyDiscovery {
 
     /**
@@ -27,6 +23,13 @@ public class FamilyDiscovery {
     @JsonProperty("addr")
     @JsonPropertyDescription("Device addr in the namespace of the given family")
     public String addr;
+    /**
+     * Port number for the family connection (e.g. UDP port for BACnet/IP)
+     * 
+     */
+    @JsonProperty("port")
+    @JsonPropertyDescription("Port number for the family connection (e.g. UDP port for BACnet/IP)")
+    public Integer port;
     /**
      * Point reference in the namespace of the given family
      * 
@@ -39,6 +42,7 @@ public class FamilyDiscovery {
     public int hashCode() {
         int result = 1;
         result = ((result* 31)+((this.addr == null)? 0 :this.addr.hashCode()));
+        result = ((result* 31)+((this.port == null)? 0 :this.port.hashCode()));
         result = ((result* 31)+((this.ref == null)? 0 :this.ref.hashCode()));
         return result;
     }
@@ -52,7 +56,7 @@ public class FamilyDiscovery {
             return false;
         }
         FamilyDiscovery rhs = ((FamilyDiscovery) other);
-        return (((this.addr == rhs.addr)||((this.addr!= null)&&this.addr.equals(rhs.addr)))&&((this.ref == rhs.ref)||((this.ref!= null)&&this.ref.equals(rhs.ref))));
+        return ((((this.addr == rhs.addr)||((this.addr!= null)&&this.addr.equals(rhs.addr)))&&((this.port == rhs.port)||((this.port!= null)&&this.port.equals(rhs.port))))&&((this.ref == rhs.ref)||((this.ref!= null)&&this.ref.equals(rhs.ref))));
     }
 
 }

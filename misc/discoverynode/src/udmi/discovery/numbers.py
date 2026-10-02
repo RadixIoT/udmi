@@ -11,7 +11,14 @@ class NumberDiscovery(discovery.DiscoveryController):
 
   family = "vendor"
 
-  def __init__(self, state, publisher, *, range):
+  def __init__(self, state, publisher, *, range = None):
+    # Number discovery
+    # 
+    # Args:
+    #   state
+    #   publisher
+    #   (kw) range (string): Comma seperated string of the numbers to discover,
+    #      or None for infinte sequential from 1.
     self.cancelled = None
     self.task_thread = None
     self.range = range
@@ -36,12 +43,17 @@ class NumberDiscovery(discovery.DiscoveryController):
       if self.cancelled:
         return
       if i:
+        addr = str(i)
+        network = None
+        if ":" in addr:
+          network, addr = addr.split(":", 1)
         result = DiscoveryEvent(
-            generation=self.generation, family=self.family, addr=str(i)
+            generation=self.generation, family=self.family, addr=addr, network=network
         )
         self.publish(result)
       time.sleep(1)
 
   def stop_discovery(self):
     self.cancelled = True
-    self.task_thread.join()
+    if self.task_thread:
+      self.task_thread.join()

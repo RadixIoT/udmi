@@ -1,7 +1,6 @@
 package com.google.bos.udmi.service.core;
 
 import static com.google.bos.udmi.service.access.IotAccessBase.MAX_CONFIG_LENGTH;
-import static com.google.bos.udmi.service.core.ReflectProcessor.PAYLOAD_KEY;
 import static com.google.bos.udmi.service.messaging.MessageDispatcher.messageHandlerFor;
 import static com.google.bos.udmi.service.pod.UdmiServicePod.UDMI_VERSION;
 import static com.google.common.base.Preconditions.checkState;
@@ -22,6 +21,7 @@ import static com.google.udmi.util.GeneralUtils.ifNotNullGet;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifNotTrueThen;
 import static com.google.udmi.util.GeneralUtils.ifTrueGet;
+import static com.google.udmi.util.GeneralUtils.isNotEmpty;
 import static com.google.udmi.util.GeneralUtils.isNullOrTruthy;
 import static com.google.udmi.util.JsonUtil.asMap;
 import static com.google.udmi.util.JsonUtil.getDate;
@@ -32,6 +32,7 @@ import static com.google.udmi.util.JsonUtil.stringifyTerse;
 import static com.google.udmi.util.JsonUtil.toStringMap;
 import static java.lang.String.format;
 import static java.util.Optional.ofNullable;
+import static udmi.schema.Envelope.SubFolder.INVALID;
 import static udmi.schema.Envelope.SubFolder.UPDATE;
 
 import com.google.bos.udmi.service.access.IotAccessBase;
@@ -69,6 +70,7 @@ import udmi.schema.Envelope.SubType;
 public abstract class ProcessorBase extends ContainerBase implements SimpleHandler {
 
   public static final String IOT_ACCESS_COMPONENT = "iot-access";
+  public static final String PAYLOAD_KEY = "payload";
   private static final String RESET_CONFIG_VALUE = "reset_config";
   private static final String BREAK_CONFIG_VALUE = "break_json";
   private static final String EXTRA_FIELD_KEY = "extra_field";
@@ -133,7 +135,8 @@ public abstract class ProcessorBase extends ContainerBase implements SimpleHandl
       reflectError(getExceptionSubType(), bundleException);
       return;
     }
-    Envelope envelope = getContinuation(e).getEnvelope();
+    MessageContinuation continuation = getContinuation(e);
+    Envelope envelope = continuation == null ? new Envelope() : continuation.getEnvelope();
     String message = Common.getExceptionMessage(e);
     String payload = friendlyStackTrace(e);
     error(format("Received message exception: %s", payload));
@@ -181,9 +184,11 @@ public abstract class ProcessorBase extends ContainerBase implements SimpleHandl
     // If the error comes from the reflect registry, then don't use the registry as the device,
     // so revert the default behavior (otherwise the message goes nowhere!).
     String registryId = errorMap.get(REGISTRY_ID_PROPERTY_KEY);
-    if (reflectRegistry.equals(registryId)) {
+    if (reflectRegistry != null && reflectRegistry.equals(registryId)) {
       errorMap.put(REGISTRY_ID_PROPERTY_KEY, errorMap.get(DEVICE_ID_KEY));
       errorMap.put(DEVICE_ID_KEY, null);
+    } else if (reflectRegistry == null) {
+      warn("reflectRegistry is null, cannot perform registry-level error reflection correctly");
     }
 
     errorMap.put(SUBTYPE_PROPERTY_KEY, ifNotNullGet(subType, SubType::value));
@@ -194,10 +199,11 @@ public abstract class ProcessorBase extends ContainerBase implements SimpleHandl
     errorMessage.version = UdmiServicePod.getDeployedConfig().udmi_version;
     errorMessage.timestamp = isoConvert();
     errorMap.put(PAYLOAD_KEY, encodeBase64(stringify(errorMessage)));
-    error(format("Reflecting error %s/%s for %s", errorMap.get(SUBTYPE_PROPERTY_KEY),
+    error(format("Reflecting error %s/%s for %s, txn %s", errorMap.get(SUBTYPE_PROPERTY_KEY),
         errorMap.get(SUBFOLDER_PROPERTY_KEY),
-        errorMap.get(DEVICE_ID_KEY)));
-    reflectString(makeReflectEnvelope(registryId, null), stringify(errorMap));
+        errorMap.get(DEVICE_ID_KEY),
+        bundle.attributesMap.get("transactionId")));
+    reflectString(makeReflectEnvelope(registryId, null, null), stringify(errorMap));
   }
 
   protected void reflectMessage(Envelope envelope, String message) {
@@ -211,7 +217,9 @@ public abstract class ProcessorBase extends ContainerBase implements SimpleHandl
       checkState(envelope.payload == null, "envelope payload is not null");
       String jsonEncoded = message.isEmpty() ? JSON_EMPTY_STRING : message;
       envelope.payload = encodeBase64(jsonEncoded);
-      reflectString(makeReflectEnvelope(deviceRegistryId, envelope.source), stringify(envelope));
+      String principal = ofNullable(envelope.principal).orElse(UdmiServicePod.INSTANCE_ID);
+      reflectString(makeReflectEnvelope(deviceRegistryId, envelope.source, principal),
+          stringify(envelope));
     } catch (Exception e) {
       error(format("Message reflection error %s", friendlyStackTrace(e)));
     } finally {
@@ -266,7 +274,7 @@ public abstract class ProcessorBase extends ContainerBase implements SimpleHandl
         envelopeMap.get(SUBFOLDER_PROPERTY_KEY), envelopeMap.get(DEVICE_ID_KEY), invalid));
     String deviceRegistryId = envelopeMap.get(REGISTRY_ID_PROPERTY_KEY);
     envelopeMap.put("payload", encodeBase64(bundleException.bundle.payload));
-    reflectString(makeReflectEnvelope(deviceRegistryId, null), stringify(envelopeMap));
+    reflectString(makeReflectEnvelope(deviceRegistryId, null, null), stringify(envelopeMap));
   }
 
   private void reflectString(Envelope envelope, String commandString) {
@@ -274,11 +282,12 @@ public abstract class ProcessorBase extends ContainerBase implements SimpleHandl
         iotAccess.sendCommand(envelope, SubFolder.UDMI, commandString));
   }
 
-  protected Envelope makeReflectEnvelope(String registryId, String source) {
+  protected Envelope makeReflectEnvelope(String registryId, String source, String principal) {
     Envelope envelope = new Envelope();
     envelope.deviceRegistryId = reflectRegistry;
     envelope.deviceId = registryId;
     envelope.source = source;
+    envelope.principal = principal;
     return envelope;
   }
 
@@ -302,7 +311,8 @@ public abstract class ProcessorBase extends ContainerBase implements SimpleHandl
       mungeConfigDebug(attributes, "undefined", (String) extraField);
       return BROKEN_CONFIG_JSON;
     } else if (newLastStart != null) {
-      payload = asMap(ofNullable(previous.getValue()).orElse(EMPTY_JSON));
+      String prevVal = previous != null ? previous.getValue() : null;
+      payload = asMap(isNotEmpty(prevVal) ? prevVal : EMPTY_JSON);
       augmentPayload(payload, attributes.transactionId, previous.getKey());
       String update = updateWithLastStart(payload, newLastStart);
       ifNotNullThen(update,
@@ -315,7 +325,8 @@ public abstract class ProcessorBase extends ContainerBase implements SimpleHandl
       ifNotNullThen(extraField,
           field -> warn(format("Ignoring unknown %s value %s", EXTRA_FIELD_KEY, extraField)));
       try {
-        payload = asMap(ofNullable(previous.getValue()).orElse(EMPTY_JSON));
+        String prevVal = previous != null ? previous.getValue() : null;
+        payload = asMap(isNotEmpty(prevVal) ? prevVal : EMPTY_JSON);
         reason = ifNotNullGet(attributes.subFolder, SubFolder::value, null);
       } catch (Exception e) {
         throw new PreviousParseException("parsing previous config", e);
@@ -325,7 +336,8 @@ public abstract class ProcessorBase extends ContainerBase implements SimpleHandl
     ifNotNullThen(updatePayload, p -> updatePayload.remove(TIMESTAMP_KEY));
     ifNotNullThen(updatePayload, p -> updatePayload.remove(VERSION_KEY));
 
-    if (attributes.subFolder != null && attributes.subFolder != UPDATE) {
+    if (attributes.subFolder != null && attributes.subFolder != UPDATE
+        && attributes.subFolder != INVALID) {
       payload.put(attributes.subFolder.value(), updatePayload);
     }
 
@@ -393,7 +405,8 @@ public abstract class ProcessorBase extends ContainerBase implements SimpleHandl
 
   @Override
   public void processMessage(Envelope envelope, Object message) {
-    debug(format("Process message %s %s", stringifyTerse(envelope), stringifyTerse(message)));
+    debug("Process message " + stringifyTerse(envelope));
+    trace("Message payload " + stringifyTerse(message));
     ((MessageDispatcherImpl) dispatcher).processMessage(envelope, message);
   }
 

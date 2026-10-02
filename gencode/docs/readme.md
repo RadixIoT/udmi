@@ -7,8 +7,10 @@
 
 ## Messages
 * [**config**](config.html) - The config block controls a device's intended behavior. [Config Documentation](../../docs/messages/config.md)
+* [**events_alarmset**](events_alarmset.html) - A set of alarms reporting telemetry data. [Alarmset Events Documentation](../../docs/messages/alarmset.md#telemetry)
 * [**events_discovery**](events_discovery.html) - [Discovery result](../../docs/specs/discovery.md) with implicit discovery
 * [**events_pointset**](events_pointset.html) - A set of points reporting telemetry data. [Pointset Events Documentation](../../docs/messages/pointset.md#telemetry)
+* [**events_streams**](events_streams.html) - Sequential data stream chunks for reliable transport over MQTT (e.g. PCAP traces, firmware blobs, reliable alarms, logs playback).
 * [**events_system**](events_system.html) - Used for system events such as logging. [System Event Documentation](../../docs/messages/system.md#event)
 * [**events_udmi**](events_udmi.html) - Used for udmi events such as logging.
 * [**state**](state.html) - [State](../../docs/messages/state.md) message, defined by [`state.json`]
@@ -21,19 +23,18 @@
 * [**configuration_endpoint**](configuration_endpoint.html) - Parameters to define a message endpoint
 
 ## Other
+* [**building_config_entity**](building_config_entity.html)
 * [**commands_discovery**](commands_discovery.html) - [Discovery command](../../docs/specs/discovery.md) for provisioning
-* [**commands_mapping**](commands_mapping.html) - [Mapping command](../../docs/specs/mapping.md) for provisioning
-* [**config_mapping**](config_mapping.html) - Configuration for [mapping](../../docs/specs/mapping.md)
 * [**configuration_execution**](configuration_execution.html) - Parameters for configuring the execution run of a UDMI tool
 * [**configuration_pod**](configuration_pod.html) - Parameters for configuring the execution run of a UDMIS pod
 * [**configuration_pubber**](configuration_pubber.html) - Parameters to define a pubber runtime instance
 * [**data_template**](data_template.html) - Information container for simple template substitution.
+* [**equipment_translation**](equipment_translation.html) - [Discovery result](../../docs/specs/discovery.md) with implicit results
 * [**events**](events.html) - Container object for all event schemas, not directly used.
-* [**events_mapping**](events_mapping.html) - [Mapping result](../../docs/specs/mapping.md) with implicit enumeration
 * [**events_validation**](events_validation.html) - Validation device result
 * [**monitoring**](monitoring.html) - Output from UDMIS monitoring
+* [**mosquitto_client_response**](mosquitto_client_response.html) - Information returned by Mosquitto dynamic security getClient command.
 * [**persistent_device**](persistent_device.html) - Device persistent data
 * [**properties**](properties.html)
 * [**query_cloud**](query_cloud.html) - Information specific to how the device communicates with the cloud.
-* [**state_mapping**](state_mapping.html) - State for [mapping](../../docs/specs/mapping.md)
 * [**state_validation**](state_validation.html) - Validation state summary

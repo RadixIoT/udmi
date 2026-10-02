@@ -9,30 +9,25 @@ on:
   schedule:
     - cron: '0 13 * * *'
 
-concurrency:
-  group: ci-${{ github.repository }}
-  cancel-in-progress: true
 
 jobs:
   unit:
     name: Unit Tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - uses: actions/setup-java@v4
+      - name: Checkout source
+        uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
-      - uses: actions/setup-python@v5
+          cache: 'gradle'
+      - uses: actions/setup-python@v6
         with:
-          python-version: '3.10'
-      - name: Checkout source
-        uses: actions/checkout@v4
-      - name: start and test local servers
-        run: |
-          bin/setup_base
-          bin/clone_model
-          bin/start_pubsub
+          python-version: '3.13'
+      - name: base setup
+        run: sudo bin/setup_base
       - name: bin/run_tests all_tests
         run: bin/run_tests all_tests
       - name: all test output
@@ -53,39 +48,87 @@ jobs:
       - name: site test output
         if: ${{ !cancelled() }}
         run: more out/test_bin+test_sites
+      - name: python generated classes test output
+        if: ${{ !cancelled() }}
+        run: more out/test_bin+test_generated_classes_py
+      - name: mantis test output
+        if: ${{ !cancelled() }}
+        run: more out/test_bin+test_mantis || true
+      - name: workbench test output
+        if: ${{ !cancelled() }}
+        run: more out/test_bin+test_workbench || true
 
   spelling:
     name: Docs Spelling Checks
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Check Spelling
         uses: rojopolis/spellcheck-github-actions@0.35.0
         with:
           config_path: .spellcheck.yml
           task_name: Markdown
 
+  build_packages:
+    name: Build Java Packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: base setup
+        run: sudo bin/setup_base
+      - name: Build Java Packages
+        run: |
+          bin/gencode check
+          validator/bin/build
+          pubber/bin/build
+          services/bin/build
+          bin/container udmis prep --no-check
+      - name: Upload prebuilt packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: udmi-prebuilt-packages
+          path: |
+            udmis/build/libs/
+            udmis/var/deployed_version.json
+            validator/build/libs/
+            pubber/build/libs/
+            services/build/libs/
+
   automapping:
     name: Automapping capability
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    if: ${{ vars.TARGET_PROJECT != '' && !cancelled() }}
+    needs: build_packages
+    if: ${{ !cancelled() }}
     env:
-      TARGET_PROJECT: ${{ vars.TARGET_PROJECT }}
+      TARGET_PROJECT: //mqtt/localhost:9001
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
+          cache: 'gradle'
       - name: base setup
-        run: |
-          bin/setup_base
-          bin/clone_model
+        run: sudo bin/setup_base
+      - name: Download prebuilt packages
+        uses: actions/download-artifact@v8
+        with:
+          name: udmi-prebuilt-packages
       - name: local setup
         run: |
-          bin/start_local sites/udmi_site_model $TARGET_PROJECT
+          bin/udmi start sites/udmi_site_model $TARGET_PROJECT
           bin/pull_messages ${TARGET_PROJECT}%ZZ-TRI-FECTA > /tmp/message_capture.log 2>&1 &
       - name: bin/test_automapper
         run: bin/test_automapper $TARGET_PROJECT
@@ -95,7 +138,7 @@ jobs:
           find sites/udmi_site_model/extras/ -type f | xargs more
       - name: udmis log
         if: ${{ !cancelled() }}
-        run: cat /tmp/udmis.log
+        run: cat out/udmis.log
       - name: pubber log
         if: ${{ !cancelled() }}
         run: cat out/pubber.log.GAT-123
@@ -108,7 +151,7 @@ jobs:
       - name: support bundle
         if: ${{ !cancelled() }}
         run: bin/support ${{ github.repository_owner }}_${{ github.job }}_
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           if-no-files-found: error
@@ -116,24 +159,28 @@ jobs:
           path: '*_udmi-support_*.tgz'
 
   baseline:
-    name: Baseline Tests
+    name: Baseline Sequences
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    needs: automapping
-    if: vars.TARGET_PROJECT != ''
+    needs: [ build_packages, automapping ]
     env:
-      TARGET_PROJECT: ${{ vars.TARGET_PROJECT }}
+      TARGET_PROJECT: //mqtt/localhost:9001
       UDMI_ALT_REGISTRY: ZZ-REDIRECT-NA
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
+          cache: 'gradle'
       - name: base setup
-        run: bin/run_tests install_dependencies
+        run: sudo bin/setup_base
+      - name: Download prebuilt packages
+        uses: actions/download-artifact@v8
+        with:
+          name: udmi-prebuilt-packages
       - name: local setup
-        run: bin/start_local sites/udmi_site_model $TARGET_PROJECT
+        run: bin/udmi start sites/udmi_site_model $TARGET_PROJECT
       - name: registrar clean
         run: bin/test_regclean solo $TARGET_PROJECT
       - name: special sequences
@@ -157,7 +204,7 @@ jobs:
       - name: support bundle
         if: ${{ !cancelled() }}
         run: UDMI_REGISTRY_SUFFIX=_b bin/support ${{ github.repository_owner }}_${{ github.job }}_
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           if-no-files-found: error
@@ -167,28 +214,33 @@ jobs:
   sequencer:
     name: Sequencer Tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
+    needs: build_packages
     strategy:
       fail-fast: false
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-    if: vars.TARGET_PROJECT != ''
     env:
-      TARGET_PROJECT: ${{ vars.TARGET_PROJECT }}
+      TARGET_PROJECT: //mqtt/localhost:9001
       UDMI_ALT_REGISTRY: ZZ-REDIRECT-NA
       UDMI_REGISTRY_SUFFIX: _${{ matrix.shard }}
       MATRIX_SHARD_COUNT: 10
       MATRIX_SHARD_INDEX: ${{ matrix.shard }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
+          cache: 'gradle'
       - name: base setup
-        run: bin/run_tests install_dependencies
+        run: sudo bin/setup_base
+      - name: Download prebuilt packages
+        uses: actions/download-artifact@v8
+        with:
+          name: udmi-prebuilt-packages
       - name: local setup
-        run: bin/start_local sites/udmi_site_model $TARGET_PROJECT
+        run: bin/udmi start sites/udmi_site_model $TARGET_PROJECT
       - name: registrar clean
         run: bin/test_regclean $TARGET_PROJECT
       - name: sequence tests clean
@@ -211,7 +263,10 @@ jobs:
         run: more out/pubber.log* pubber/out/*.json | cat
       - name: udmis log
         if: ${{ !cancelled() }}
-        run: cat /tmp/udmis.log
+        run: cat out/udmis.log
+      - name: message capture log
+        if: ${{ !cancelled() }}
+        run: cat out/message_capture.log || true
       - name: itemized test post-process
         if: ${{ !cancelled() }}
         run: egrep ' test .* after .*s ' out/sequencer.log-* | tee out/timing_itemized.out
@@ -220,7 +275,7 @@ jobs:
         run: |
           bin/support ${{ github.repository_owner }}_${{ github.job }}_
           tar -tzvf *udmi-support*.tgz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           if-no-files-found: error
@@ -231,33 +286,57 @@ jobs:
     name: UDMIS Local Setup
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    needs: build_packages
+    env:
+      TARGET_PROJECT: //mqtt/localhost:9001
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
+          cache: 'gradle'
       - name: base setup
         run: |
-          bin/setup_base
-          bin/clone_model
+          sudo bin/setup_base
           bin/registrar sites/udmi_site_model
+      - name: Download prebuilt packages
+        uses: actions/download-artifact@v8
+        with:
+          name: udmi-prebuilt-packages
       - name: local setup
         run: |
-          bin/start_local sites/udmi_site_model //mqtt/localhost
-          bin/pull_messages //mqtt/localhost > out/message_capture.log 2>&1 &
-      - name: bin/test_etcd
-        run: bin/test_etcd
+          bin/udmi start sites/udmi_site_model $TARGET_PROJECT
+          bin/pull_messages $TARGET_PROJECT > out/message_capture.log 2>&1 &
+      - name: bin/test_etcd_prerun
+        run: bin/test_etcd_prerun
+      - name: bin/test_influx_prerun
+        run: bin/test_influx_prerun
+      - name: bin/test_postgresql_prerun
+        run: bin/test_postgresql_prerun
       - name: bin/test_mosquitto
         run: bin/test_mosquitto
       - name: bin/test_regclean
-        run: bin/test_regclean //mqtt/localhost
+        run: bin/test_regclean $TARGET_PROJECT
       - name: bin/test_runlocal
         run: bin/test_runlocal
       - name: bin/test_sequencer
-        run: bin/test_sequencer local full //mqtt/localhost $(< etc/local_tests.txt)
+        run: bin/test_sequencer local full $TARGET_PROJECT $(< etc/local_tests.txt)
+      - name: bin/test_uufi
+        run: bin/test_uufi
       - name: bin/test_udmis
         run: bin/test_udmis
+      - name: bin/test_etcd_postrun
+        run: bin/test_etcd_postrun
+      - name: bin/test_influx_postrun
+        run: bin/test_influx_postrun
+      - name: bin/test_postgresql_postrun
+        run: bin/test_postgresql_postrun
+      - name: bin/test_capture
+        run: bin/test_capture
+      - name: db histogram
+        if: ${{ !cancelled() }}
+        run: bin/db_histogram $TARGET_PROJECT
       - name: mosquitto debug
         if: ${{ !cancelled() }}
         run: |
@@ -265,14 +344,26 @@ jobs:
           sudo more /etc/mosquitto/* /etc/mosquitto/conf.d/* || true
       - name: udmis log
         if: ${{ !cancelled() }}
-        run: cat /tmp/udmis.log
+        run: cat out/udmis*.log
+      - name: message capture log
+        if: ${{ !cancelled() }}
+        run: cat out/message_capture.log || true
+      - name: registrar log
+        if: ${{ !cancelled() }}
+        run: cat out/registrar.log || true
+      - name: mosquitto state
+        if: ${{ !cancelled() }}
+        run: |
+          source etc/mosquitto_ctrl.sh
+          $MOSQUITTO_CTRL listClients || true
+          $MOSQUITTO_CTRL listRoles || true
       - name: mosquitto logs
         if: ${{ !cancelled() }}
-        run: cat /var/log/mosquitto/mosquitto.log || true
+        run: cat var/mosquitto/log/mosquitto.log /var/log/mosquitto/mosquitto.log 2>/dev/null || true
       - name: support bundle
         if: ${{ !cancelled() }}
         run: bin/support ${{ github.repository_owner }}_${{ github.job }}_
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           if-no-files-found: error
@@ -283,19 +374,25 @@ jobs:
     name: Endpoint Redirection
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    needs: build_packages
     env:
       UDMI_ALT_REGISTRY: ZZ-REDIRECT-NA
-      TARGET_PROJECT: //mqtt/localhost
+      TARGET_PROJECT: //mqtt/localhost:9001
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
+          cache: 'gradle'
       - name: base setup
-        run: bin/run_tests install_dependencies
+        run: sudo bin/setup_base
+      - name: Download prebuilt packages
+        uses: actions/download-artifact@v8
+        with:
+          name: udmi-prebuilt-packages
       - name: local setup
-        run: bin/start_local sites/udmi_site_model $TARGET_PROJECT
+        run: bin/udmi start sites/udmi_site_model $TARGET_PROJECT
       - name: regclean
         run: bin/test_regclean $TARGET_PROJECT
       - name: bin/test_proxy
@@ -309,37 +406,79 @@ jobs:
       - name: support bundle
         if: ${{ !cancelled() }}
         run: UDMI_REGISTRY_SUFFIX=_r bin/support ${{ github.repository_owner }}_${{ github.job }}_
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           if-no-files-found: error
           name: udmi-support_${{ github.run_id }}-r
           path: '*_udmi-support_*.tgz'
 
+  blobupdates:
+    name: Blob Updates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: build_packages
+    env:
+      TARGET_PROJECT: //mqtt/localhost:9001
+      UDMI_REGISTRY_SUFFIX: _BU
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+      - name: base setup
+        run: sudo bin/setup_base
+      - name: Download prebuilt packages
+        uses: actions/download-artifact@v8
+        with:
+          name: udmi-prebuilt-packages
+      - name: local setup
+        run: bin/udmi start sites/udmi_site_model $TARGET_PROJECT
+      - name: regclean
+        run: bin/test_regclean $TARGET_PROJECT
+      - name: bin/test_blob_updates
+        run: bin/test_blob_updates $TARGET_PROJECT
+      - name: pubber.log
+        if: ${{ !cancelled() }}
+        run: more out/pubber.log* | cat
+      - name: support bundle
+        if: ${{ !cancelled() }}
+        run: UDMI_REGISTRY_SUFFIX=_blobupdates bin/support ${{ github.repository_owner }}_${{ github.job }}_
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          if-no-files-found: error
+          name: udmi-support_${{ github.run_id }}-blobupdates
+          path: '*_udmi-support_*.tgz'
+
   posttest:
     name: Post-test Summarization
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    needs: [ baseline, sequencer, endpoint, runlocal ]
-    if: ${{ !cancelled() && vars.TARGET_PROJECT != '' }}
+    needs: [ baseline, sequencer, endpoint, runlocal, blobupdates ]
+    if: ${{ !cancelled() }}
     env:
-      TARGET_PROJECT: ${{ vars.TARGET_PROJECT }}
+      TARGET_PROJECT: //mqtt/localhost:9001
       UDMI_ALT_REGISTRY: ZZ-REDIRECT-NA
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
-          python-version: '3.10'
+          python-version: '3.13'
       - name: Base setup
-        run: bin/setup_base
+        run: sudo bin/setup_base
       - name: Download all sharded support packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: udmi-support_${{ github.run_id }}
           pattern: udmi-support_${{ github.run_id }}-*
           merge-multiple: true
       - name: Upload merged support package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
           name: udmi-support_${{ github.run_id }}
@@ -361,22 +500,33 @@ jobs:
     name: Discovery Tests
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    needs: build_packages
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
+          cache: 'gradle'
       - name: Setup prerequisites
         run: |
-          bin/setup_base
-          bin/clone_model
+          sudo bin/setup_base
           ln -s sites/udmi_site_model/ site_model
           (cd site_model; git log -n 1)
           docker network create udminet --subnet 192.168.99.0/24
+      - name: Download prebuilt packages
+        uses: actions/download-artifact@v8
+        with:
+          name: udmi-prebuilt-packages
+      - name: Unit Tests
+        run: |
+          misc/discoverynode/testing/unit/unit_tests.sh
+      - name: Integration Tests
+        run: |
+          misc/discoverynode/testing/integration/integration_test.sh
       - name: Build UDMIS container
         run: |
           udmis/bin/build check
@@ -384,26 +534,312 @@ jobs:
           echo Built local UDMIS
       - name: Start UDMIS container
         run: |
-          docker run -d --rm --net udminet --name udmis -p 8883:8883 \
+          mkdir -p out
+          docker rm -f udmis || true
+          docker run -d --net udminet --name udmis -p 8883:8883 -p 18836:5432 \
             -v $PWD/site_model:/root/site_model \
             -v $PWD/var/tmp:/tmp \
             -v $PWD/var/etcd:/root/udmi/var/etcd \
             -v $PWD/var/mosquitto:/etc/mosquitto \
-            udmis udmi/bin/start_local block site_model/cloud_iot_config.json
-          for count in `seq 0 30`; do
+            -v $PWD/out:/root/udmi/out \
+            udmis udmi/bin/udmi start block site_model //mqtt/localhost:8883
+          for count in `seq 0 60`; do
             echo Waiting for UDMIS startup $((30 - count))
             [[ ! -f var/tmp/pod_ready.txt ]] || break
             (docker ps | fgrep -q udmis) || break
             sleep 1
           done
+          if [[ ! -f var/tmp/pod_ready.txt ]]; then
+            echo "=== DIAGNOSTIC LOGS FOR UDMIS STARTUP FAILURE ==="
+            echo "Host working directory: $PWD"
+            echo "Host var/tmp/ contents:"
+            ls -la var/tmp || true
+            echo "Docker container status:"
+            docker ps -a || true
+            echo "Docker logs for udmis:"
+            docker logs udmis || true
+            echo "Empirically searching container for log files and ready signals..."
+            temp_img=$(docker commit udmis 2>/dev/null)
+            if [[ -n "$temp_img" ]]; then
+              docker run --rm "$temp_img" sh -c '
+                echo "=== Listing all log files and status files found inside the container ==="
+                find / -name "*.log" -o -name "*ready.txt" 2>/dev/null | grep -v "/proc" | grep -v "/sys" | while read -r filepath; do
+                  echo ""
+                  echo "--- CONTENT OF $filepath ---"
+                  cat "$filepath" 2>/dev/null || echo "[could not read file]"
+                done
+              ' || true
+              docker rmi "$temp_img" >/dev/null 2>&1 || true
+            else
+              echo "Could not commit container to inspect filesystem."
+            fi
+            echo "=== END DIAGNOSTIC LOGS ==="
+          fi
           ls -l var/tmp/pod_ready.txt 2>&1
-      - name: Run Tests
+      - name: E2E Tests
         # This runs as sudo because docker containers in Github CI run as root.
         # So, when the UDMIS container runs `keygen`, the CSR and SRL files are
         # owned by root, and cannot be ovewritten by system calls to keygen,
         # unless it too is root, or the behaviour is changed, or the permisions
         # are fixed. This also requires playing some fancy games with the sudo
         # eng and PATH, so that the right version of java is picked up!
+        env:
+          POSTGRES_PORT: 18836
         run: |
           export SAVE_PATH=$PATH
           sudo -E bash -c 'PATH=$SAVE_PATH misc/discoverynode/testing/e2e/test_local site_model'
+      - name: udmis log
+        if: ${{ !cancelled() }}
+        run: |
+          echo "=== out/udmis.log ==="
+          cat out/udmis.log || true
+          echo "=== out/etcd.log ==="
+          cat out/etcd.log || true
+          echo "=== docker logs ==="
+          docker logs udmis || true
+  udmilp:
+    name: Python Library Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install Poetry
+        run: |
+          pip install poetry
+          poetry config virtualenvs.in-project true
+      - name: Cache poetry venv
+        id: cache-deps
+        uses: actions/cache@v5
+        with:
+          path: clientlib/python/.venv
+          key: ${{ runner.os }}-${{ matrix.python-version }}-venv-${{ hashFiles('clientlib/python/poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.python-version }}-venv-
+      - name: Install dependencies
+        run: |
+          cd clientlib/python
+          poetry install --with dev
+      - name: Run tests with pytest
+        run: |
+          cd clientlib/python
+          poetry run pytest -v tests/
+      - name: Run pylint
+        if: matrix.python-version == '3.13'
+        run: |
+          cd clientlib/python
+          poetry run pylint src
+
+  bridgehead:
+    name: Bridgehead Test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    needs: build_packages
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+      - name: Setup Base
+        run: sudo bin/setup_base
+      - name: Download prebuilt packages
+        uses: actions/download-artifact@v8
+        with:
+          name: udmi-prebuilt-packages
+      - name: Run Bridgehead Test
+        run: |
+          bridgehead/tests/test_bridgehead
+      - name: udmis.log
+        if: ${{ !cancelled() }}
+        run: cat out/bridgehead_udmis.log || true
+      - name: validator.log
+        if: ${{ !cancelled() }}
+        run: cat out/bridgehead_validator.log || true
+      - name: pubber.log
+        if: ${{ !cancelled() }}
+        run: cat out/bridgehead_pubber.log || true
+      - name: ahu1_exceptions.txt
+        if: ${{ !cancelled() }}
+        run: cat out/bridgehead_ahu1_exceptions.txt || true
+      - name: Upload logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: bridgehead-logs
+          path: |
+            bridgehead/var/mosquitto/log/
+            out/bridgehead_*
+
+  openbridge:
+    name: Openbridge Test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    needs: build_packages
+    env:
+      TARGET_PROJECT: //mqtt/localhost:18833
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+      - name: Setup Base
+        run: sudo bin/setup_base
+      - name: Download prebuilt packages
+        uses: actions/download-artifact@v8
+        with:
+          name: udmi-prebuilt-packages
+      - name: Start Local Services
+        run: |
+          bin/udmi start sites/udmi_site_model ${{ env.TARGET_PROJECT }}
+      - name: Run Openbridge Test
+        run: |
+          bin/test_openbridge
+      - name: Upload logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: openbridge-logs
+          path: |
+            out/
+
+  mcp:
+    name: MCP Test Infrastructure
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Setup Base
+        run: |
+          sudo bin/setup_base
+          bin/clone_model
+      - name: Run MCP Infrastructure Tests
+        run: |
+          bin/test_mcp
+      - name: Upload logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcp-logs
+          path: |
+            var/instances/
+            out/
+
+  gummi:
+    name: GUMMI Management Interface
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Setup Base
+        run: sudo bin/setup_base
+      - name: Run GUMMI Tests
+        run: |
+          bin/test_gummi
+      - name: Upload logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: gummi-logs
+          path: |
+            out/
+
+  groot:
+    name: Groot Distribution Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: build_packages
+    env:
+      TARGET_PROJECT: //mqtt/localhost:18833
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+      - name: base setup
+        run: sudo bin/setup_base
+      - name: Download prebuilt packages
+        uses: actions/download-artifact@v8
+        with:
+          name: udmi-prebuilt-packages
+      - name: Run Groot Distribution Test
+        run: |
+          bin/test_groot ${{ env.TARGET_PROJECT }}
+      - name: Base UDMIS Log
+        if: ${{ !cancelled() }}
+        run: cat out/udmis.log || true
+      - name: Instance 1 Log
+        if: ${{ !cancelled() }}
+        run: cat out/udmis_1.log || true
+      - name: Instance 2 Log
+        if: ${{ !cancelled() }}
+        run: cat out/udmis_2.log || true
+      - name: Instance 3 Log
+        if: ${{ !cancelled() }}
+        run: cat out/udmis_3.log || true
+      - name: Upload logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: groot-logs
+          path: |
+            out/udmis*.log
+
+  spotter:
+    name: Spotter Agent Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Base setup
+        run: |
+          sudo bin/setup_base
+          bin/setup_ca sites/udmi_site_model localhost
+          bin/keygen CERT sites/udmi_site_model/devices/AHU-1
+      - name: Run Spotter Unit Tests
+        run: edge/spotter/bin/run_spotter_tests unit
+      - name: Run Spotter Integration & Parity Tests
+        run: |
+          MIN_DEVICES=${PARITY_TEST_MIN_DEVICES:-2}
+          MAX_DEVICES=${PARITY_TEST_MAX_DEVICES:-9}
+          export PARITY_TEST_NUM_DEVICES=$(( RANDOM % (MAX_DEVICES - MIN_DEVICES + 1) + MIN_DEVICES ))
+          echo "Configured PARITY_TEST_NUM_DEVICES=${PARITY_TEST_NUM_DEVICES} (random between ${MIN_DEVICES} and ${MAX_DEVICES})"
+          edge/spotter/bin/run_spotter_tests integration

@@ -44,3 +44,17 @@ gcloud pubsub topics publish target \
 
 The reason for the redirection of any data through a PubSub topic is so that the Cloud IoT registry, if necessary,
 can be housed in a different cloud project from the backend applications.
+
+### System Interfaces
+
+This document details the administrative-facing **[Internal Tools (Reflector)](tech_stack.md)** interface, which represents one of three core system interfaces into the UDMIS ecosystem:
+*   **[Devices (UDMI proper)](compliance.md):** Edge-side device-to-system interface used by physical or simulated on-premise hardware to report telemetry streams (`events`) and dynamically receive or acknowledge operational `config`.
+*   **[Internal Tools (Reflector)](tech_stack.md):** Administrative database-to-system interface used by backend registration and synchronization tooling (such as `registrar`) to manage site models, provision cryptographic keys, and reconcile device records.
+*   **[Applications (UUFI)](uufi.md):** App-to-system messaging interface used by external applications, dashboards, and operators to query system state, update model specifications, and command devices.
+
+### Internal Control Channels vs Device Topics
+
+When running a local broker setup or utilizing the UDMI Server (UDMIS) infrastructure, you may observe two distinct but related MQTT configuration topics. It is important to distinguish between communication bound for the edge device, and communication intended for internal backend orchestration.
+
+*   **`{topic_prefix}/config`:** This is the standard, actual device configuration topic (Downlink). The physical or simulated IoT device subscribes to this topic. Once a configuration update is finalized, it is published here. The device receives the payload, parses it according to the schema, and updates its operational behavior.
+*   **`{topic_prefix}/c/control/config/update`:** This is an internal control channel used by the UDMIS microservices. The `/c/` designator indicates a send channel, specifically for `control` flow. This topic is completely hidden from the edge device. When an operator or an automated service (such as a sequencer test) initiates a configuration change, the update is first sent to this internal channel. The UDMIS backend services intercept this message, validate and process the update, and subsequently publish the final, resolved configuration out to the actual device `config` topic.

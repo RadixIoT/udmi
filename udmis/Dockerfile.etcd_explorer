@@ -1,0 +1,23 @@
+FROM alpine:latest
+
+WORKDIR /root
+
+# Install required dependencies
+RUN apk add --no-cache bash openjdk21 gcompat curl jq moreutils coreutils
+
+# Workaround for gcompat on Alpine/gRPC
+ENV LD_PRELOAD=/lib/libgcompat.so.0
+
+# Mirror UDMI repo layout under /root
+ADD build/udmi_bin/ bin/
+ADD build/udmi_etc/ etc/
+ADD var/ var/
+
+# Component files under udmis/
+ADD bin/ udmis/bin/
+ADD build/libs/udmis-1.0-SNAPSHOT-all.jar udmis/build/libs/udmis-1.0-SNAPSHOT-all.jar
+
+EXPOSE 8080
+
+ENTRYPOINT ["/root/udmis/bin/etcd_explorer"]
+CMD ["etc/local_pod.json"]

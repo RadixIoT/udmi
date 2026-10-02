@@ -2,6 +2,8 @@
 
 # Discovery
 
+Discovery is the first phase in the overall [Onboarding](onboarding.md) flow, followed by [Mapping](mapping.md).
+
 Discovery consists of two related processes for describing the 'as built'
 state of a system: _scanning_ and _enumeration_. For devices, the overall
 [discovery sequence](sequences/discovery.md) describes the exact sequence
@@ -18,36 +20,6 @@ information intrinsic to a device and the capabilities it provides.
 Backend services will receive a streaming set of
 [_discovery enumeration messages_](../../tests/schemas/events_discovery/enumeration.json) that
 follow the appropriate [_discovery event schema_](../../gencode/docs/events_discovery.html).
-
-## Sequence Diagram
-
-The overall discovery sequence involves multiple components that work together to provide the overall flow:
-* **Devices**: The target things that need to be discovered, configured, and ultimately communicate point data.
-* **Spotter**: Operative node that performs _discovery_, scanning local networks and producing observations.
-* **Agent**: Cloud-based agent responsible for managing the overall _discovery_ and _mapping_ process (how often, what color, etc...).
-* **Pipeline**: Ultimate recipient of pointset information, The thing that cares about 'temperature' in a room.
-
-(The `*` prefixing a `*term` means that this id/property is being sourced/created at that step.)
-
-```mermaid
-sequenceDiagram
-  %%{wrap}%%
-  participant Devices
-  participant Spotter
-  participant Agent as Agent<br/>(w/ Mapping)
-  participant Pipeline
-  Note over Devices, Agent: Discovery Start
-  activate Agent
-  Agent->>Spotter: DISCOVERY CONFIG<br/>()
-  loop
-    Devices-->Spotter: fieldbus
-    Spotter->>Agent: DISCOVERY EVENT<br/>(*scan_id)<br/><properties: *uniqs>
-  end
-  Note over Agent: Provisioning<br/>& Mapping
-  Agent ->> Pipeline: (config device)
-  deactivate Agent
-  Devices->>Pipeline: POINTSET EVENT<br/>(device_id, device_num_id, points)<br/><pointset>
-```
 
 ## Scanning
 
@@ -72,6 +44,24 @@ devices that support the capability (e.g. an [IoT Gateway](gateway.md)), or it
 can be done automatically by a device itself (e.g. on a predefined interval). Depending
 on device capabilities and system configuration, the scanning process may also
 trigger discovered device enumeration.
+
+For details on how the `generation` field operates during different scan types, see the [Discovery Generation](discovery/generation.md) documentation. For protocol-specific details on active BACnet discovery and scan depths, see the [BACnet Discovery](discovery_bacnet.md) specification.
+
+## Discovery Depth
+
+Discovery `depth` controls the level of detail collected during a scan. Each depth level is cumulative, building upon the preceding level:
+
+* **`buckets`**: High-level network segments or device groupings.
+* **`entries`**: Individual discovered devices and cross-family address associations.
+* **`system`**: Device identity and hardware information.
+* **`details`**: Enumerated device points, objects, or services.
+
+| `depth` | Description | `bacnet` ([Spec](discovery_bacnet.md)) | `iot` | `ipv4` |
+| :--- | :--- | :--- | :--- | :--- |
+| **`buckets`** | Network or logical groupings | BACnet networks and UDP ports | Cloud registries or site groups | IPv4 subnets |
+| **`entries`** | Device addresses and bindings | Device instances and IP/MAC bindings | IoT device IDs and gateway bindings | Host IP, MAC, and hostname bindings |
+| **`system`** | Device identity and hardware | Device object identity and vendor info | Reported system hardware and software | Host OS and hardware fingerprint |
+| **`details`** | Exposed points or services | BACnet objects and properties | Configured or self-enumerated points | Open ports and network services |
 
 ## Enumeration
 

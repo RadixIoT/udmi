@@ -1,5 +1,5 @@
 {
-  "$udmi_version": "1.5.2",
+  "$udmi_version": "1.5.7",
   "type": "object",
   "title": "Iot Access",
   "additionalProperties": false,
@@ -18,6 +18,9 @@
     },
     "options": {
       "type": "string"
+    },
+    "endpoint": {
+      "$ref": "file:configuration_endpoint.json"
     }
   }
 }

@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""Site trigger utility to emulate database mutations and model updates."""
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+import subprocess
+import sys
+from urllib.parse import urlparse
+
+# Usage: bin/site_trigger <action> <site_path> <device_id> <blob_id> <version>
+#                         [conn_spec]
+
+if len(sys.argv) < 6:
+  print(
+      "Usage: bin/site_trigger <action> <site_path> <device_id> "
+      "<blob_id> <version> [conn_spec]",
+      file=sys.stderr,
+  )
+  sys.exit(1)
+
+action = sys.argv[1]
+if action != "update":
+  print(
+      f"Error: Unknown action '{action}'. Only 'update' is supported.",
+      file=sys.stderr,
+  )
+  sys.exit(1)
+
+site_path = sys.argv[2]
+device_id = sys.argv[3]
+blob_id = sys.argv[4]
+version = sys.argv[5]
+conn_spec = sys.argv[6] if len(sys.argv) > 6 else "mqtt://localhost"
+
+# 1. Update the immutable site_model file on disk
+metadata_file = os.path.join(site_path, "devices", device_id, "metadata.json")
+if not os.path.exists(metadata_file):
+  print(f"Error: metadata.json not found at {metadata_file}", file=sys.stderr)
+  sys.exit(1)
+
+with open(metadata_file, "r", encoding="utf-8") as f:
+  metadata = json.load(f)
+
+# Ensure 'system' and 'software' keys exist in metadata.json
+if "system" not in metadata:
+  metadata["system"] = {}
+if "software" not in metadata["system"]:
+  metadata["system"]["software"] = {}
+
+# Modify the expected version for the target blob_id
+metadata["system"]["software"][blob_id] = version
+
+# Write the modified metadata.json back to disk (atomic write)
+temp_file = metadata_file + ".tmp"
+with open(temp_file, "w", encoding="utf-8") as f:
+  json.dump(metadata, f, indent=2)
+os.rename(temp_file, metadata_file)
+print(
+    f"Successfully updated expected version of {blob_id} to '{version}' "
+    f"in {metadata_file}."
+)
+
+# Try to extract registry_id from cloud_iot_config.json
+site_config_file = os.path.join(site_path, "cloud_iot_config.json")
+if not os.path.exists(site_config_file):
+  sys.exit(
+      f"Error: Configuration file {site_config_file} not found. "
+      "site_trigger requires a valid cloud_iot_config.json."
+  )
+
+try:
+  with open(site_config_file, "r", encoding="utf-8") as f:
+    site_config = json.load(f)
+    registry_id = site_config.get("registry_id")
+except (OSError, json.JSONDecodeError) as e:
+  sys.exit(f"Error: Could not read configuration file {site_config_file}: {e}")
+
+if not registry_id:
+  sys.exit(
+      f"Error: registry_id is not defined in {site_config_file}. "
+      "site_trigger requires registry_id to be defined."
+  )
+
+# Parse connection spec
+spec = conn_spec
+provider_ssl = False
+
+if not spec.startswith("//"):
+  parsed = urlparse(spec)
+  if parsed.scheme in ("mqtt", "mqtts", "ssl"):
+    host_port = parsed.netloc.split("@")[-1]
+    prefix = parsed.path.strip("/")
+    if not prefix and parsed.username and not parsed.password:
+      prefix = parsed.username
+    spec = f"//mqtt/{host_port}/{prefix}" if prefix else f"//mqtt/{host_port}"
+
+if spec.startswith("//"):
+  spec_body = spec[2:]
+  if "/" in spec_body:
+    provider, endpoint = spec_body.split("/", 1)
+    provider_ssl = provider in ("ssl", "mqtts", "tcps", "wss", "mqtt")
+    spec = f"mqtt://{endpoint}"
+
+url = urlparse(spec)
+host = url.hostname or "localhost"
+is_ssl = provider_ssl or url.scheme in ("ssl", "mqtts", "tcps", "wss")
+port = url.port or (8883 if is_ssl else 1883)
+
+# Build model update payload adhering strictly to flat SystemModel schema
+now_utc_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+payload = {
+    "subType": "model",
+    "subFolder": "system",
+    "deviceRegistryId": registry_id,
+    "deviceId": device_id,
+    "projectId": "vibrant",
+    "transactionId": f"TXN-{os.urandom(4).hex()}",
+    "publishTime": now_utc_str,
+    "source": "site_trigger",
+    "payload": {
+        "version": "1.5.2",
+        "timestamp": now_utc_str,
+        "software": {
+            blob_id: version
+        }
+    }
+}
+
+# Publish the registry and device-scoped model/system message over the UUFI bus
+topic = f"/uufi/r/{registry_id}/d/{device_id}/c/model/system"
+if url.path and url.path != "/":
+  prefix = url.path.strip("/")
+  topic = f"/{prefix}/uufi/r/{registry_id}/d/{device_id}/c/model/system"
+
+# Use mosquitto_pub to publish the message
+cmd = [
+    "mosquitto_pub",
+    "-h", host,
+    "-p", str(port),
+    "-t", topic,
+    "-m", json.dumps(payload)
+]
+
+if registry_id:
+  cmd.extend(["-i", f"/uufi/{registry_id}/client"])
+
+# Add credentials if username/password are in conn_spec,
+# otherwise derive from key if available.
+if url.username:
+  cmd.extend(["-u", url.username])
+  if url.password:
+    cmd.extend(["-P", url.password])
+else:
+  # Check if reflector/rsa_private.pkcs8 exists
+  key_path = os.path.join(site_path, "reflector", "rsa_private.pkcs8")
+  if os.path.exists(key_path):
+    try:
+      with open(key_path, "rb") as f:
+        key_bytes = f.read()
+      # Compute sha256 hex digest
+      sha256_hash = hashlib.sha256(key_bytes).hexdigest()
+      derived_password = sha256_hash[:8]
+      suffix = os.environ.get("UDMI_REGISTRY_SUFFIX", "")
+      registry_id_with_suffix = registry_id + suffix
+      derived_username = f"/r/UDMI-REFLECT/d/{registry_id_with_suffix}"
+      print(f"Using derived credentials for user: {derived_username}")
+      cmd.extend(["-u", derived_username])
+      cmd.extend(["-P", derived_password])
+    except OSError as e:
+      print(
+          f"Warning: Failed to derive credentials from key: {e}",
+          file=sys.stderr,
+      )
+
+# Attach mTLS certificates and keys directly from site model if available.
+ca_cert = os.path.join(site_path, "reflector", "ca.crt")
+if os.path.exists(ca_cert):
+  cmd.extend(["--cafile", ca_cert])
+client_cert = os.path.join(site_path, "reflector", "rsa_private.crt")
+if os.path.exists(client_cert):
+  cmd.extend(["--cert", client_cert])
+client_key = os.path.join(site_path, "reflector", "rsa_private.pem")
+if os.path.exists(client_key):
+  cmd.extend(["--key", client_key])
+has_certs = (
+    os.path.exists(ca_cert)
+    or os.path.exists(client_cert)
+    or os.path.exists(client_key)
+)
+if has_certs:
+  cmd.extend(["--insecure"])
+
+print(f"Publishing model/system update to {topic}...")
+try:
+  subprocess.run(cmd, check=True)
+  print("Model update message triggered successfully.")
+except subprocess.CalledProcessError as e:
+  print(f"Error publishing model update: {e}", file=sys.stderr)
+  sys.exit(1)

@@ -3,17 +3,23 @@ FROM google/cloud-sdk:alpine
 WORKDIR /root
 
 # Ideally the same as from Dockerfile.udmis to share layers
-RUN apk add --no-cache bash openjdk21 gcompat curl jq sudo git python3 moreutils mosquitto mosquitto-clients openssl coreutils
+RUN apk add --no-cache bash openjdk21 gcompat curl jq sudo git python3 py3-grpcio py3-cryptography py3-cffi moreutils mosquitto mosquitto-clients openssl coreutils
 
 # Workaround for https://github.com/grpc/grpc-java/issues/8751
 # Only necessary for running on GKE -- won't show up with docker!
 ENV LD_PRELOAD=/lib/libgcompat.so.0
 
+RUN chmod 1777 /tmp
 RUN apk add openssh
 
 ADD build/udmi_bin/ bin/
 ADD build/udmi_etc/ etc/
 ADD build/schema/ schema/
+ADD build/butler/ butler/
+ADD build/common/ common/
+ADD build/gencode/ gencode/
+ADD build/mcp/ mcp/
+
 
 ENV NO_CACHE_DIR=true
 RUN bin/setup_base

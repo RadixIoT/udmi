@@ -5,7 +5,6 @@
   "gateway": {
     "gateway_id": "DDC-35"
   },
-  "hash": "0a14502a",
   "localnet": {
     "families": {
       "bacnet": {
@@ -17,15 +16,18 @@
     "points": {
       "valve_command_43": {
         "ref": "BO:1.present_value",
-        "units": ""
+        "units": "",
+        "url": "vendor://null/BO:1.present_value"
       },
       "valve_command_44": {
         "ref": "BO:2.present_value",
-        "units": ""
+        "units": "",
+        "url": "vendor://null/BO:2.present_value"
       },
       "valve_command_45": {
         "ref": "BO:3.present_value",
-        "units": ""
+        "units": "",
+        "url": "vendor://null/BO:3.present_value"
       }
     }
   },
@@ -45,5 +47,5 @@
   },
   "timestamp": "2024-11-04T10:02:28Z",
   "upgraded_from": "1.4.2",
-  "version": "1.5.3"
+  "version": "1.5.7"
 }

@@ -2,6 +2,7 @@ package com.google.daq.mqtt.registrar;
 
 import static com.google.daq.mqtt.TestCommon.ALT_REGISTRY;
 import static com.google.daq.mqtt.TestCommon.DEVICE_ID;
+import static com.google.daq.mqtt.TestCommon.GATEWAY_ID;
 import static com.google.daq.mqtt.TestCommon.MOCK_SITE;
 import static com.google.daq.mqtt.TestCommon.REGISTRY_ID;
 import static com.google.daq.mqtt.TestCommon.SITE_REGION;
@@ -14,9 +15,11 @@ import static com.google.daq.mqtt.util.IotMockProvider.MOCK_DEVICE_ID;
 import static com.google.udmi.util.GeneralUtils.friendlyStackTrace;
 import static com.google.udmi.util.GeneralUtils.ifNotNullThen;
 import static com.google.udmi.util.GeneralUtils.ifTrueThen;
+import static com.google.udmi.util.SiteModel.MOCK_CLEAN;
 import static com.google.udmi.util.SiteModel.MOCK_PROJECT;
 import static java.lang.Boolean.TRUE;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -28,13 +31,17 @@ import com.google.daq.mqtt.util.IotMockProvider.ActionType;
 import com.google.daq.mqtt.util.IotMockProvider.MockAction;
 import com.google.udmi.util.ExceptionMap.ExceptionCategory;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.NotNull;
 import org.junit.Test;
 import udmi.schema.CloudModel;
+import udmi.schema.FamilyLocalnetModel;
+import udmi.schema.LocalnetModel;
 import udmi.schema.Metadata;
 import udmi.schema.PointPointsetModel;
 
@@ -76,10 +83,14 @@ public class RegistrarTest {
   }
 
   private Registrar getRegistrar(List<String> args) {
+    return getRegistrar(false, args);
+  }
+
+  private Registrar getRegistrar(boolean cleanRegistry, List<String> args) {
     try {
       List<String> registrarArgs = new ArrayList<>();
       registrarArgs.add(MOCK_SITE);
-      registrarArgs.add(MOCK_PROJECT);
+      registrarArgs.add(cleanRegistry ? MOCK_CLEAN : MOCK_PROJECT);
       ifNotNullThen(args, () -> registrarArgs.addAll(args));
       return new Registrar().processArgs(registrarArgs);
     } catch (Exception e) {
@@ -96,7 +107,7 @@ public class RegistrarTest {
 
   @Test
   public void blockDevicesTest() {
-    List<MockAction> mockActions = getMockedActions(ImmutableList.of("-b"));
+    List<MockAction> mockActions = executeRegistrarPopulated(ImmutableList.of("-b"));
     List<MockAction> blockActions = filterActions(mockActions, BLOCK_DEVICE_ACTION);
     assertEquals("block action count", 1, blockActions.size());
     assertEquals("block action distinct devices", blockActions.size(),
@@ -120,10 +131,10 @@ public class RegistrarTest {
     ifTrueThen(useSuffix, () -> args.addAll(ImmutableList.of("-e", REGISTRY_SUFFIX)));
     Registrar registrar = getRegistrar(args);
     registrar.execute();
-    List<Object> mockActions = registrar.getMockActions();
+    List<MockAction> mockActions = registrar.getMockActions();
     String mockClientString = IotMockProvider.mockClientString(MOCK_PROJECT,
         expectedRegistry, SITE_REGION);
-    List<Object> mismatchItems = mockActions.stream().map(action -> ((MockAction) action).client)
+    List<Object> mismatchItems = mockActions.stream().map(action -> action.client)
         .filter(client -> !client.equals(mockClientString))
         .collect(Collectors.toList());
     assertEquals("clients not matching " + mockClientString, ImmutableList.of(), mismatchItems);
@@ -174,8 +185,23 @@ public class RegistrarTest {
   }
 
   @Test
+  public void transitiveUpdate() {
+    List<MockAction> baseMocked = executeRegistrarClean(ImmutableList.of(GATEWAY_ID));
+    List<MockAction> baseCreate = filterActions(baseMocked, CREATE_DEVICE_ACTION);
+    assertEquals("Devices created directly", 1, baseCreate.size());
+
+    List<MockAction> transitiveMocked = executeRegistrarClean(ImmutableList.of("-T", GATEWAY_ID));
+    List<MockAction> transitiveCreate = filterActions(transitiveMocked, CREATE_DEVICE_ACTION);
+    assertEquals("Devices created transitively", 4, transitiveCreate.size());
+
+    int transitiveCreates = transitiveCreate.stream()
+        .filter(mock -> !mock.deviceId.equals(GATEWAY_ID)).toList().size();
+    assertEquals("Transitive devices", 3, transitiveCreates);
+  }
+
+  @Test
   public void basicUpdates() {
-    List<MockAction> mockActions = getMockedActions(ImmutableList.of());
+    List<MockAction> mockActions = executeRegistrarPopulated(ImmutableList.of());
 
     List<MockAction> blockActions = filterActions(mockActions, BLOCK_DEVICE_ACTION);
     assertEquals("block action count", 0, blockActions.size());
@@ -199,6 +225,31 @@ public class RegistrarTest {
             Collectors.toSet()));
   }
 
+  @Test
+  public void scanAddrMismatchHandlingTest() {
+    Registrar registrar = getRegistrar(ImmutableList.of());
+    registrar.execute(() -> {
+      Map<String, LocalDevice> localDevices = registrar.getWorkingDevices();
+      LocalDevice device = localDevices.get(DEVICE_ID);
+      Metadata metadata = device.getMetadata();
+      if (metadata.localnet == null) {
+        metadata.localnet = new LocalnetModel();
+      }
+      if (metadata.localnet.families == null) {
+        metadata.localnet.families = new HashMap<>();
+      }
+      FamilyLocalnetModel familyModel = new FamilyLocalnetModel();
+      familyModel.addr = "2C:58:B9:6C:7A:88"; // Uppercase MAC address
+      metadata.localnet.families.put("ether", familyModel);
+    });
+
+    LocalDevice device = registrar.getWorkingDevices().get(DEVICE_ID);
+    assertNotNull("Generated config should exist despite scan_addr validation error",
+        device.getSettings().config);
+    assertTrue("Device should record schema violation for scan_addr mismatch",
+        device.hasCategory(ExceptionCategory.schema));
+  }
+
   private Boolean isNotBlocking(MockAction action) {
     return !TRUE.equals(((CloudModel) action.data).blocked);
   }
@@ -209,10 +260,18 @@ public class RegistrarTest {
         .collect(Collectors.toList());
   }
 
-  private List<MockAction> getMockedActions(ImmutableList<String> optArgs) {
-    Registrar registrar = getRegistrar(optArgs);
+  private List<MockAction> executeRegistrarPopulated(ImmutableList<String> optArgs) {
+    return executeRegistrar(false, optArgs);
+  }
+
+  private List<MockAction> executeRegistrarClean(ImmutableList<String> optArgs) {
+    return executeRegistrar(true, optArgs);
+  }
+
+  @NotNull
+  private List<MockAction> executeRegistrar(boolean clean, ImmutableList<String> optArgs) {
+    Registrar registrar = getRegistrar(clean, optArgs);
     registrar.execute();
-    return registrar.getMockActions().stream().map(a -> (MockAction) a)
-        .collect(Collectors.toList());
+    return registrar.getMockActions();
   }
 }

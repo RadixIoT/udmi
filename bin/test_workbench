@@ -1,0 +1,38 @@
+#!/bin/bash -e
+#
+# Runs the UDMI Workbench test suite.
+#
+# Runs workbench/tests: the gateway, the compliance rollup, the results-commit
+# guard, the Mantis adapter and the launch prerequisites.
+
+ROOT_DIR=$(realpath "$(dirname "$0")/..")
+cd "$ROOT_DIR"
+
+COMMON_GIT=$(git rev-parse --git-common-dir 2>/dev/null || true)
+MAIN_ROOT=""
+if [ -n "$COMMON_GIT" ]; then
+  MAIN_ROOT=$(realpath "$COMMON_GIT/..")
+fi
+
+if [ -d "venv" ]; then
+  PYTHON_BIN="venv/bin/python3"
+elif [ -n "$MAIN_ROOT" ] && [ -d "$MAIN_ROOT/venv" ]; then
+  PYTHON_BIN="$MAIN_ROOT/venv/bin/python3"
+else
+  PYTHON_BIN="python3"
+fi
+
+if [ ! -d "workbench/tests" ]; then
+  echo "Error: workbench/tests is missing. The Workbench suite cannot be located."
+  exit 1
+fi
+
+# Mantis must never reach a model endpoint from the test suite: a triage run
+# takes minutes and its output is not deterministic. Forcing offline mode makes
+# any test that tries to reason take the explicit provider-missing path instead
+# of silently opening a network connection.
+export MANTIS_OFFLINE=true
+
+echo "Running UDMI Workbench test suite..."
+# Same module path bin/workbench gives the gateway (the UDMI common package too).
+PYTHONPATH="$ROOT_DIR/common/src/main/python:$ROOT_DIR" $PYTHON_BIN -m pytest workbench/tests "$@"

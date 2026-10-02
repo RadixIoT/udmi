@@ -1,5 +1,5 @@
 {
-  "$udmi_version": "1.5.2",
+  "$udmi_version": "1.5.7",
   "title": "Config",
   "description": "The config block controls a device's intended behavior. [Config Documentation](../docs/messages/config.md)",
   "$section": "Messages",
@@ -39,6 +39,9 @@
     },
     "blobset": {
       "$ref": "file:config_blobset.json#"
+    },
+    "alarmset": {
+      "$ref": "file:config_alarmset.json#"
     },
     "pointset": {
       "$ref": "file:config_pointset.json#"

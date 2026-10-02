@@ -34,9 +34,18 @@ Some caveats:
 * [bad_point_ref](#bad_point_ref-preview): Error handling for badly formed gateway point ref Test skipped: Not a proxied device
 * [bad_target_address](#bad_target_address-preview): Error handling for badly formed gateway target address Test skipped: Not a proxied device
 * [bad_target_family](#bad_target_family-preview): Error handling for badly formed gateway target family Test skipped: Not a proxied device
+* [blob_update_idempotency](#blob_update_idempotency-preview): Validates that a previously applied blob config is not reapplied.
+* [blob_update_incompatible](#blob_update_incompatible-preview): Validates reporting of incompatibility for a blob update.
+* [blob_update_invalid_hash](#blob_update_invalid_hash-preview): Validates tamper protection by providing a valid URL but an incorrect SHA-256 hash.
+* [blob_update_invalid_payload](#blob_update_invalid_payload-preview): Validates format and signature checking by providing a dummy payload.
+* [blob_update_oversize](#blob_update_oversize-preview): Validates reporting of an oversized payload fetch failure.
+* [blob_update_success](#blob_update_success-preview): Validates a successful blob update where the device fetches, applies, and reports the new version.
+* [blob_update_unreachable_url](#blob_update_unreachable_url-preview): Validates network resilience by providing an unreachable or 404 URL.
 * [broken_config](#broken_config-stable): Check that the device correctly handles a broken (non-json) config message.
 * [config_logging](#config_logging-stable): Check that the device publishes minimum required log entries when receiving config
 * [device_config_acked](#device_config_acked-stable): Check that the device MQTT-acknowledges a sent config.
+* [endpoint_connection_bad_alternate](#endpoint_connection_bad_alternate-preview): Failed connection never uses alternate registry.
+* [endpoint_connection_bad_hash](#endpoint_connection_bad_hash-preview): Failed connection because of bad hash.
 * [endpoint_connection_error](#endpoint_connection_error-preview): Push endpoint config message to device that results in a connection error.
 * [endpoint_connection_retry](#endpoint_connection_retry-preview): Check repeated endpoint with same information gets retried.
 * [endpoint_connection_success_alternate](#endpoint_connection_success_alternate-preview): Check connection to an alternate project.
@@ -54,17 +63,19 @@ Some caveats:
 * [family_ipv6_addr](#family_ipv6_addr-preview): Test skipped: No ipv6 address defined in metadata
 * [gateway_proxy_events](#gateway_proxy_events-beta): Check that a gateway proxies pointset events for indicated devices Test skipped: Not a gateway
 * [gateway_proxy_state](#gateway_proxy_state-preview): Check that a gateway proxies state updates for indicated devices Test skipped: Not a gateway
+* [pointset_numeric_values](#pointset_numeric_values-stable): Check that numerical values in pointset payloads are reported as JSON numbers and not strings
 * [pointset_publish](#pointset_publish-stable): Check that a device publishes pointset events
 * [pointset_publish_interval](#pointset_publish_interval-stable): Check handling of sample_rate_sec and sample_limit_sec
 * [pointset_remove_point](#pointset_remove_point-stable): Check that pointset state does not report an unconfigured point
 * [pointset_request_extraneous](#pointset_request_extraneous-stable): Check error when pointset configuration contains extraneous point
 * [scan_periodic_now_enumerate](#scan_periodic_now_enumerate-preview): Check periodic scan on a fixed schedule and enumeration
 * [scan_single_future](#scan_single_future-preview): Check results of a single scan scheduled soon
-* [scan_single_now](#scan_single_now-preview): Check results of a single scan scheduled in the recent past
+* [scan_single_now](#scan_single_now-preview): Check results of a single scan scheduled in the recent past including enumeration
 * [scan_single_past](#scan_single_past-preview): Check that a scan scheduled in the past never starts
 * [state_make_model](#state_make_model-stable): Check that a device publishes correct make and model information in state messages
 * [state_software](#state_software-stable): Check that a device publishes correct software information in state messages
 * [system_last_update](#system_last_update-stable): Check that last_update state is correctly set in response to a config update.
+* [system_mode_restart](#system_mode_restart-preview): Restart and connect to same endpoint and expect it returns.
 * [valid_serial_no](#valid_serial_no-stable)
 
 ## bad_point_ref (PREVIEW)
@@ -87,6 +98,117 @@ Error handling for badly formed gateway target family
 
 
 Test skipped: Not a proxied device
+
+## blob_update_idempotency (PREVIEW)
+
+Validates that a previously applied blob config is not reapplied.
+
+1. Update config trigger blob update for system
+    * Add `blobset` = { "blobs": { "system": { "phase": `final`, "generation": `blob generation`, "sha256": `blob data hash`, "url": `software data` } } }
+1. Wait until system logs level `DEBUG` category `blobset.blob.receive`
+1. Wait until system logs level `DEBUG` category `blobset.blob.fetch`
+1. Wait until system logs level `NOTICE` category `blobset.blob.apply`
+1. Wait for system phase transitions
+1. Wait for system phase is FINAL
+1. Check that system state is success
+1. Check that system software version reflects update
+1. Check that log level `DEBUG` (or greater) category `blobset.blob.receive` was not logged
+1. Check that log level `DEBUG` (or greater) category `blobset.blob.fetch` was not logged
+1. Check that log level `INFO` (or greater) category `blobset.blob.apply` was not logged
+1. Wait for system phase is FINAL
+
+Test passed.
+
+## blob_update_incompatible (PREVIEW)
+
+Validates reporting of incompatibility for a blob update.
+
+1. Update config trigger blob update for system
+    * Add `blobset` = { "blobs": { "system": { "phase": `final`, "generation": `blob generation`, "sha256": `blob data hash`, "url": `software data` } } }
+1. Wait until system logs level `DEBUG` category `blobset.blob.receive`
+1. Wait until system logs level `DEBUG` category `blobset.blob.fetch`
+1. Wait until system logs level `ERROR` category `blobset.blob.parse`
+1. Wait for system phase transitions
+1. Wait for system phase is FINAL
+1. Check that system state indicates error
+
+Test passed.
+
+## blob_update_invalid_hash (PREVIEW)
+
+Validates tamper protection by providing a valid URL but an incorrect SHA-256 hash.
+
+1. Update config trigger blob update for system
+    * Add `blobset` = { "blobs": { "system": { "phase": `final`, "generation": `blob generation`, "sha256": `blob data hash`, "url": `software data` } } }
+1. Wait until system logs level `DEBUG` category `blobset.blob.receive`
+1. Wait until system logs level `DEBUG` category `blobset.blob.fetch`
+1. Wait until system logs level `ERROR` category `blobset.blob.parse`
+1. Wait for system phase transitions
+1. Wait for system phase is FINAL
+1. Check that system state indicates error
+
+Test passed.
+
+## blob_update_invalid_payload (PREVIEW)
+
+Validates format and signature checking by providing a dummy payload.
+
+1. Update config trigger blob update for system
+    * Add `blobset` = { "blobs": { "system": { "phase": `final`, "generation": `blob generation`, "sha256": `blob data hash`, "url": `software data` } } }
+1. Wait until system logs level `DEBUG` category `blobset.blob.receive`
+1. Wait until system logs level `DEBUG` category `blobset.blob.fetch`
+1. Wait until system logs level `ERROR` category `blobset.blob.parse`
+1. Wait for system phase transitions
+1. Wait for system phase is FINAL
+1. Check that system state indicates error
+
+Test passed.
+
+## blob_update_oversize (PREVIEW)
+
+Validates reporting of an oversized payload fetch failure.
+
+1. Update config trigger blob update for system
+    * Add `blobset` = { "blobs": { "system": { "phase": `final`, "generation": `blob generation`, "sha256": `blob data hash`, "url": `software data` } } }
+1. Wait until system logs level `DEBUG` category `blobset.blob.receive`
+1. Wait until system logs level `DEBUG` category `blobset.blob.fetch`
+1. Wait until system logs level `ERROR` category `blobset.blob.fetch`
+1. Wait for system phase transitions
+1. Wait for system phase is FINAL
+1. Check that system state indicates error
+
+Test passed.
+
+## blob_update_success (PREVIEW)
+
+Validates a successful blob update where the device fetches, applies, and reports the new version.
+
+1. Update config trigger blob update for system
+    * Add `blobset` = { "blobs": { "system": { "phase": `final`, "generation": `blob generation`, "sha256": `blob data hash`, "url": `software data` } } }
+1. Wait until system logs level `DEBUG` category `blobset.blob.receive`
+1. Wait until system logs level `DEBUG` category `blobset.blob.fetch`
+1. Wait until system logs level `NOTICE` category `blobset.blob.apply`
+1. Wait for system phase transitions
+1. Wait for system phase is FINAL
+1. Check that system state is success
+1. Check that system software version reflects update
+
+Test passed.
+
+## blob_update_unreachable_url (PREVIEW)
+
+Validates network resilience by providing an unreachable or 404 URL.
+
+1. Update config trigger blob update for system
+    * Add `blobset` = { "blobs": { "system": { "phase": `final`, "generation": `blob generation`, "sha256": `blob data hash`, "url": `software data` } } }
+1. Wait until system logs level `DEBUG` category `blobset.blob.receive`
+1. Wait until system logs level `DEBUG` category `blobset.blob.fetch`
+1. Wait until system logs level `ERROR` category `blobset.blob.fetch`
+1. Wait for system phase transitions
+1. Wait for system phase is FINAL
+1. Check that system state indicates error
+
+Test passed.
 
 ## broken_config (STABLE)
 
@@ -129,6 +251,34 @@ Test passed.
 Check that the device MQTT-acknowledges a sent config.
 
 1. Wait for config acked
+
+Test passed.
+
+## endpoint_connection_bad_alternate (PREVIEW)
+
+Failed connection never uses alternate registry.
+
+1. Wait until initial last_config matches config timestamp
+1. Update config before blobset phase is final and stateStatus is not null
+    * Add `blobset` = { "blobs": { "_iot_endpoint_config": { "phase": `final`, "generation": `blob generation`, "sha256": `blob data hash`, "url": `endpoint data` } } }
+1. Wait for blobset phase is final and stateStatus is not null
+1. Wait for blobset phase is final and stateStatus is not null
+1. Wait until alternate client connect delay
+1. Wait for blobset phase is final and stateStatus is null
+1. Wait until restored last_config matches config timestamp
+1. Update config before endpoint config blobset state not defined
+    * Remove `blobset.blobs._iot_endpoint_config`
+1. Wait for endpoint config blobset state not defined
+
+Test passed.
+
+## endpoint_connection_bad_hash (PREVIEW)
+
+Failed connection because of bad hash.
+
+1. Update config before blobset status is ERROR
+    * Add `blobset` = { "blobs": { "_iot_endpoint_config": { "phase": `final`, "generation": `blob generation`, "sha256": `invalid blob data hash`, "url": `endpoint data` } } }
+1. Wait for blobset status is ERROR
 
 Test passed.
 
@@ -305,7 +455,7 @@ Test passed.
 Check enumeration of multiple categories
 
 1. Update config before enumeration not active
-    * Add `discovery.enumerations` = { "features": `entries`, "families": `entries`, "points": `entries` }
+    * Add `discovery.enumerations` = { "features": `details`, "families": `details`, "points": `details` }
 1. Wait for enumeration not active
 1. Update config before matching enumeration generation
     * Add `discovery.generation` = `generation start time`
@@ -414,10 +564,22 @@ Check that a gateway proxies state updates for indicated devices
 
 Test skipped: Not a gateway
 
+## pointset_numeric_values (STABLE)
+
+Check that numerical values in pointset payloads are reported as JSON numbers and not strings
+
+1. Update config before receive a pointset event
+    * Set `pointset.sample_rate_sec` = `10`
+1. Wait for receive a pointset event
+
+Test passed.
+
 ## pointset_publish (STABLE)
 
 Check that a device publishes pointset events
 
+1. Update config before receive a pointset event
+    * Set `pointset.sample_rate_sec` = `10`
 1. Wait for receive a pointset event
 
 Test passed.
@@ -427,7 +589,7 @@ Test passed.
 Check handling of sample_rate_sec and sample_limit_sec
 
 1. Update config before receive at least 4 pointset events
-    * Add `pointset.sample_rate_sec` = `8`
+    * Set `pointset.sample_rate_sec` = `8`
     * Add `pointset.sample_limit_sec` = `5`
 1. Wait for receive at least 4 pointset events
 1. Check that time period between successive pointset events is between 5 and 8 seconds
@@ -443,6 +605,8 @@ Test passed.
 
 Check that pointset state does not report an unconfigured point
 
+1. Update config before pointset state matches config
+    * Set `pointset.sample_rate_sec` = `10`
 1. Wait until pointset state matches config
 1. Wait until pointset event contains correct points
 1. Update config before pointset state does not contain removed point
@@ -463,7 +627,7 @@ Test passed.
 Check error when pointset configuration contains extraneous point
 
 1. Update config before pointset state matches config
-    * Add `pointset.sample_rate_sec` = `10`
+    * Set `pointset.sample_rate_sec` = `10`
 1. Wait until pointset state matches config
 1. Wait until pointset event contains correct points
 1. Update config before pointset state contains extraneous point error
@@ -479,29 +643,31 @@ Check error when pointset configuration contains extraneous point
 
 Test passed.
 
-## scan_periodic_now_enumerate (PREVIEW)
+## scan_periodic_now_enumerate+vendor (PREVIEW)
 
 Check periodic scan on a fixed schedule and enumeration
 
 1. Update config before discovery families defined
     * Remove `discovery.families.vendor`
+    * Remove `discovery.families.bacnet`
 1. Wait for discovery families defined
 1. Wait until discovery family keys match
 1. Wait for no scans active
 1. Update config before scan iterations
-    * Add `discovery.families.vendor` = { "generation": `family generation`, "scan_interval_sec": `20`, "depth": `entries`, "scan_duration_sec": `20` }
+    * Add `discovery.families.vendor` = { "generation": `family generation`, "scan_interval_sec": `20`, "depth": `details`, "scan_duration_sec": `20` }
 1. Wait for scan iterations
 1. Check that scan did not terminate prematurely
 1. Check that all events have matching refs
 
 Test passed.
 
-## scan_single_future (PREVIEW)
+## scan_single_future+vendor (PREVIEW)
 
 Check results of a single scan scheduled soon
 
 1. Update config before discovery families defined
     * Remove `discovery.families.vendor`
+    * Remove `discovery.families.bacnet`
 1. Wait for discovery families defined
 1. Wait until discovery family keys match
 1. Wait for no scans active
@@ -512,43 +678,55 @@ Check results of a single scan scheduled soon
 1. Check that scan started at time
 1. Wait until scheduled scan complete
 1. Check that scan completed at time
-1. Check that discovery events were received
+1. Check that received expected number of discovery events
 1. Check that no events have discovered refs
 1. Check that discovery events were valid
+1. Check that received all unique event numbers
+1. Check that received proper discovery start event
+1. Check that received proper last discovery event
+1. Check that received proper discovery termination event
 1. Check that all scan addresses are unique
 1. Check that all expected addresses were found
+1. Check that all expected networks were found
 
 Test passed.
 
-## scan_single_now (PREVIEW)
+## scan_single_now+vendor (PREVIEW)
 
-Check results of a single scan scheduled in the recent past
+Check results of a single scan scheduled in the recent past including enumeration
 
 1. Update config before discovery families defined
     * Remove `discovery.families.vendor`
+    * Remove `discovery.families.bacnet`
 1. Wait for discovery families defined
 1. Wait until discovery family keys match
 1. Wait for no scans active
 1. Update config before scheduled scan active
-    * Add `discovery.families.vendor` = { "generation": `family generation`, "scan_duration_sec": `10` }
+    * Add `discovery.families.vendor` = { "generation": `family generation`, "depth": `details`, "scan_duration_sec": `10` }
 1. Wait until scheduled scan active
 1. Check that scan started at time
 1. Wait until scheduled scan complete
 1. Check that scan completed at time
-1. Check that discovery events were received
-1. Check that no events have discovered refs
+1. Check that received expected number of discovery events
+1. Check that all events have matching refs
 1. Check that discovery events were valid
+1. Check that received all unique event numbers
+1. Check that received proper discovery start event
+1. Check that received proper last discovery event
+1. Check that received proper discovery termination event
 1. Check that all scan addresses are unique
 1. Check that all expected addresses were found
+1. Check that all expected networks were found
 
 Test passed.
 
-## scan_single_past (PREVIEW)
+## scan_single_past+vendor (PREVIEW)
 
 Check that a scan scheduled in the past never starts
 
 1. Update config before discovery families defined
     * Remove `discovery.families.vendor`
+    * Remove `discovery.families.bacnet`
 1. Wait for discovery families defined
 1. Wait until discovery family keys match
 1. Wait for no scans active
@@ -588,6 +766,28 @@ Check that last_update state is correctly set in response to a config update.
 1. Force config update to trigger another config update
 1. Wait until state last_config matches config timestamp
 1. _subblocks_ Wait until state update complete
+
+Test passed.
+
+## system_mode_restart (PREVIEW)
+
+Restart and connect to same endpoint and expect it returns.
+
+1. Wait for last_start is not zero
+1. Check that initial count is greater than 0
+1. Update config before system mode is ACTIVE
+    * Add `system.operation.mode` = `active`
+1. Wait for system mode is ACTIVE
+1. Update config before system mode is INITIAL
+    * Set `system.operation.mode` = `restart`
+1. Wait for system mode is INITIAL
+1. Check that restart count increased by one
+1. Update config before system mode is ACTIVE
+    * Set `system.operation.mode` = `active`
+1. Wait for system mode is ACTIVE
+1. Wait for last_config is newer than previous last_config before abort
+1. Wait for last_config is newer than previous last_config after abort
+1. Wait for last_start is newer than previous last_start
 
 Test passed.
 

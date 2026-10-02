@@ -1,5 +1,5 @@
 {
-  "$udmi_version": "1.5.2",
+  "$udmi_version": "1.5.7",
   "title": "Point Pointset Events",
   "description": "Object representation for for a single point",
   "type": "object",
@@ -7,7 +7,12 @@
   "additionalProperties": false,
   "properties": {
     "present_value": {
-      "description": "The specific point data reading",
+      "description": "The specific point data reading.  If the value is numeric, then the type must be integer or number.  If the value is an integer, it should be represented as type integer",
+       "oneOf": [
+       	 { "type": "string" },
+         { "type": "boolean" },
+       	 { "type": "number" }		
+       ],
       "examples": [24.1, "running", 4]
     }
   },

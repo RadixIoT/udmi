@@ -1,0 +1,208 @@
+#!/bin/bash
+# ==========================================================================
+# UDMI Workbench Launcher
+#
+# Checks every launch prerequisite, starts the Workbench gateway
+# (workbench/server/gateway.py) and opens it in a browser.
+# ==========================================================================
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$WORKSPACE_DIR"
+
+SERVER_MODULE="workbench.server.gateway"
+
+# Recognising our own process has to cover both ways the gateway can appear in
+# a command line: as a module (`-m workbench.server.gateway`, how this script
+# starts it) and as a script path (`workbench/server/gateway.py`, how the
+# previous launcher and a manual run start it). Matching only the module form
+# left a server started either of those other ways unrecognised, so `stop`
+# refused to touch it and the port could never be reclaimed.
+is_workbench_process() {
+  local cmdline="$1"
+  [[ "$cmdline" == *"$SERVER_MODULE"* || "$cmdline" == *"workbench/server/gateway.py"* ]]
+}
+
+PYTHON_BIN="venv/bin/python3"
+
+# The gateway hosts the Mantis agent, which imports the UDMI common Python
+# package (udmi.common.*) for project-spec parsing and broker connections.
+export PYTHONPATH="$WORKSPACE_DIR/common/src/main/python:$WORKSPACE_DIR${PYTHONPATH:+:$PYTHONPATH}"
+
+MANUAL_PORT=""
+STOP_REQUESTED=false
+
+show_usage() {
+  echo "Usage: $0 [stop] [--port=PORT | -p PORT | PORT]"
+  echo ""
+  echo "Arguments:"
+  echo "  stop              Stop the running UDMI Workbench gateway"
+  echo "  --port=N, -p N    Specify custom TCP port (default: 8080)"
+  echo ""
+  echo "Mantis needs a model provider, one of:"
+  echo "  GEMINI_API_KEY or GOOGLE_API_KEY   Google AI Studio API key"
+  echo "  bin/mantis setup --vertex=<project>[/<region>]"
+  echo "                                     one-time Vertex AI setup (with ADC)"
+  echo "  GOOGLE_CLOUD_PROJECT               your own Vertex AI project (with ADC)"
+  echo "  application-default credentials    that name a project (gcloud auth application-default login)"
+  echo "  MANTIS_OFFLINE=true                offline deterministic mode (no model)"
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    stop)
+      STOP_REQUESTED=true
+      shift
+      ;;
+    --port=*)
+      MANUAL_PORT="${1#*=}"
+      shift
+      ;;
+    --port|-p)
+      if [ -z "$2" ]; then
+        echo "Error: Option '$1' requires a port argument."
+        show_usage
+        exit 1
+      fi
+      MANUAL_PORT="$2"
+      shift 2
+      ;;
+    [0-9]*)
+      MANUAL_PORT="$1"
+      shift
+      ;;
+    -h|--help)
+      show_usage
+      exit 0
+      ;;
+    *)
+      echo "Error: Unknown argument '$1'"
+      show_usage
+      exit 1
+      ;;
+  esac
+done
+
+# Every port decision below depends on lsof; without it a port looks free, and a
+# gateway that did start is then reported as having failed.
+if ! command -v lsof > /dev/null 2>&1; then
+  echo "Error: lsof is not on PATH; bin/workbench uses it to find the gateway's port."
+  echo "Install it with 'sudo bin/setup_base' (system packages need root)."
+  exit 1
+fi
+
+# Reports who owns a port: our gateway, an unrelated process, or nobody. The
+# distinction matters because reclaiming a port we do not own would kill a
+# bystander's process.
+check_port_owner() {
+  local check_port="$1"
+  if ! lsof -i :"$check_port" > /dev/null 2>&1; then
+    echo "free"
+    return
+  fi
+
+  local pid
+  pid=$(lsof -t -i :"$check_port" 2>/dev/null | head -n 1 || true)
+  if [ -n "$pid" ]; then
+    local cmdline
+    cmdline=$(tr '\0' ' ' < /proc/"$pid"/cmdline 2>/dev/null || true)
+    if is_workbench_process "$cmdline"; then
+      echo "workbench"
+      return
+    fi
+  fi
+  echo "other"
+}
+
+stop_workbench_server() {
+  local target_port="$1"
+  echo "Stopping the UDMI Workbench gateway on port ${target_port}..."
+
+  local stopped=false
+  local pids
+  pids=$(lsof -t -i :"${target_port}" 2>/dev/null || true)
+  for pid in $pids; do
+    local cmdline
+    cmdline=$(tr '\0' ' ' < /proc/"$pid"/cmdline 2>/dev/null || true)
+    if is_workbench_process "$cmdline"; then
+      echo "Stopping UDMI Workbench (PID ${pid})."
+      kill -9 "$pid" 2>/dev/null || true
+      stopped=true
+    else
+      echo "Port ${target_port} is held by PID ${pid}, which is not the Workbench; leaving it alone."
+    fi
+  done
+
+  if [ "$stopped" = false ]; then
+    echo "No UDMI Workbench gateway was running on port ${target_port}."
+  fi
+}
+
+PORT="${MANUAL_PORT:-8080}"
+
+if [ "$STOP_REQUESTED" = true ]; then
+  stop_workbench_server "$PORT"
+  exit 0
+fi
+
+PORT_OWNER=$(check_port_owner "$PORT")
+
+if [ -n "$MANUAL_PORT" ]; then
+  # An explicit port is a requirement, not a hint: silently moving to another
+  # port would leave the operator pointing a browser at nothing.
+  if [ "$PORT_OWNER" = "other" ]; then
+    echo "Error: Port ${PORT} is occupied by another process (not the UDMI Workbench)."
+    exit 1
+  fi
+elif [ "$PORT_OWNER" = "other" ]; then
+  echo "Notice: Default port ${PORT} is in use by another application."
+  while [ "$PORT_OWNER" = "other" ]; do
+    PORT=$((PORT + 1))
+    PORT_OWNER=$(check_port_owner "$PORT")
+  done
+  echo "Selected alternate port: ${PORT}"
+fi
+
+if [ "$PORT_OWNER" = "free" ]; then
+  # Rebuild venv/ if etc/requirements.txt changed, then check every other
+  # prerequisite (modules, tmux, java, Chromium, model provider, and the saved
+  # `bin/mantis setup` provider) in one pass.
+  bin/ensure_venv
+  if ! "$PYTHON_BIN" -m workbench.server.preflight; then
+    exit 1
+  fi
+
+  echo "Starting the UDMI Workbench gateway on port ${PORT}..."
+  mkdir -p out
+  setsid "$PYTHON_BIN" -m "$SERVER_MODULE" \
+    --port="${PORT}" > out/workbench_server.log 2>&1 &
+
+  for _ in {1..20}; do
+    if lsof -i :"${PORT}" > /dev/null 2>&1; then
+      break
+    fi
+    sleep 0.5
+  done
+
+  if ! lsof -i :"${PORT}" > /dev/null 2>&1; then
+    echo "Error: the gateway failed to start on port ${PORT}. Last log lines:"
+    tail -n 20 out/workbench_server.log
+    exit 1
+  fi
+  echo "Gateway started on port ${PORT}."
+else
+  echo "Reusing the UDMI Workbench gateway already running on port ${PORT}."
+fi
+
+URL="http://localhost:${PORT}/"
+echo "Workbench running at: ${URL}"
+
+if command -v xdg-open > /dev/null 2>&1; then
+  xdg-open "$URL" > /dev/null 2>&1 &
+elif command -v open > /dev/null 2>&1; then
+  open "$URL" > /dev/null 2>&1 &
+else
+  "$PYTHON_BIN" -m webbrowser "$URL" > /dev/null 2>&1 &
+fi

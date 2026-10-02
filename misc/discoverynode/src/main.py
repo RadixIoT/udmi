@@ -10,9 +10,12 @@ import os
 # filter deprecation notice from SCAPY import
 warnings.filterwarnings(action="ignore", module=".*ipsec.*")
 
+import local_config
 import udmi.core
 import udmi.publishers.mqtt
 
+import typing
+from typing import TypedDict, Any
 
 def or_required_from_env(key: str) -> dict[str, str | int | bool]:
   """Used in argparse to return a non-optional value from env vars.
@@ -42,31 +45,32 @@ def get_arguments():
   return parser.parse_args()
 
 
-def load_config_from_file(file_name: str):
-  with open(file_name, "rb") as f:
-    return json.load(f)
-
-
 def main():
+
+  args = get_arguments()
+  config = local_config.read_config(args.config_file)
+
+  log_level_str = str(config.get("log_level", "INFO")).upper()
+  log_level = getattr(logging, log_level_str, None)
+  if not isinstance(log_level, int):
+    log_level = logging.INFO
 
   stdout = logging.StreamHandler(sys.stdout)
   stdout.addFilter(lambda log: log.levelno < logging.WARNING)
-  stdout.setLevel(logging.INFO)
+  stdout.setLevel(log_level)
   stderr = logging.StreamHandler(sys.stderr)
   stderr.setLevel(logging.WARNING)
   logging.basicConfig(
       format="%(asctime)s|%(levelname)s|%(module)s:%(funcName)s %(message)s",
       handlers=[stderr, stdout],
-      level=logging.INFO,
+      level=log_level,
   )
-  logging.root.setLevel(logging.INFO)
-
-  args = get_arguments()
+  logging.root.setLevel(log_level)
 
   logging.info("Loading config from %s", args.config_file)
-  config = load_config_from_file(args.config_file)
+  logging.warning("Started with config: %s", config)
 
-  # TODO: Should probably set this in the config
+  # TODO: Should probably set this in the config with basic templating
   if config["mqtt"].get("authentication_mechanism", "jwt_gcp") == "jwt_gcp":
     topic_prefix = f'/devices/{config["mqtt"]["device_id"]}'
   else:
@@ -82,16 +86,18 @@ def main():
       port=config["mqtt"]["port"],
       topic_prefix=topic_prefix,
       key_file=config["mqtt"]["key_file"],
+      public_key_file=config["mqtt"].get("public_key_file"),
       algorithm=config["mqtt"]["algorithm"],
       autentication_mechanism=config["mqtt"].get("authentication_mechanism", "jwt-gcp"),
       ca_file=config["mqtt"].get("ca_file"),
       cert_file=config["mqtt"].get("cert_file"),
-
   )
 
   udmi_client = udmi.core.UDMICore(
       publisher=mclient,
       topic_prefix=topic_prefix,
+      # TODO: Needs to be a different config, because reusing this
+      # violates the assumption that "udmi" module is independent.
       config=config,
   )
 

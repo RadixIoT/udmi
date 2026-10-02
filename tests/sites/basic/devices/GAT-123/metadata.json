@@ -27,13 +27,26 @@
       "vendor": {
         "addr": "20231"
       }
+    },
+    "networks": {
+      "modbus_rtu_1": {
+        "family": "modbus",
+        "adjunct": {
+          "protocol": "RTU",
+          "baud": 9600,
+          "parity": "none",
+          "data_bits": 8,
+          "stop_bits": 1,
+          "device": "COM1"
+        }
+      }
     }
   },
   "cloud": {
     "auth_type": "ES256",
-    "connection_type": "GATEWAY"
+    "resource_type": "GATEWAY"
   },
-  "version": "1.5.2",
+  "version": "1.5.7",
   "timestamp": "2020-05-01T13:39:07Z"
 
 }

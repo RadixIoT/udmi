@@ -10,14 +10,18 @@ import com.google.common.base.Strings;
 import com.google.common.reflect.ClassPath;
 import com.google.common.reflect.ClassPath.ClassInfo;
 import com.google.udmi.util.ExceptionMap.ExceptionCategory;
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.MissingFormatArgumentException;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.apache.commons.io.FileUtils;
 import udmi.schema.State;
 
 /**
@@ -70,6 +74,14 @@ public abstract class Common {
   public static final String NAMESPACE_SEPARATOR = "~";
   public static final int EXIT_CODE_ERROR = 1;
   public static final String UNKNOWN_UDMI_VERSION = "unknown";
+
+  public static final String UNKNOWN_DEVICE_ID_PREFIX = "UNK-";
+
+  public static final String DOUBLE_COLON_SEPARATOR = "::";
+  public static final String EMPTY_RETURN_RECEIPT = "-1";
+
+  public static final Integer DEFAULT_EXTRAS_DELETION_DAYS = 40;
+  public static final Integer DEFAULT_DEVICES_DELETION_DAYS = 30;
 
   /**
    * Remove the next item from the list in an exception-safe way.
@@ -207,5 +219,27 @@ public abstract class Common {
     // Force exist because PubSub Subscriber in PubSubReflector does not shut down properly.
     safeSleep(2000);
     System.exit(0);
+  }
+
+  public static String generateColonKey(String field1, String field2) {
+    Objects.requireNonNull(field1, "field1 cannot be null");
+    Objects.requireNonNull(field2, "field2 cannot be null");
+    return field1 + DOUBLE_COLON_SEPARATOR + field2;
+  }
+
+  public static long convertDaysToMilliSeconds(int days) {
+    return days * 24L * 60 * 60 * 1000;
+  }
+
+  public static void deleteFolder(File directory) {
+    try {
+      FileUtils.deleteDirectory(directory);
+    } catch (Exception e) {
+      throw new RuntimeException("Error deleting the directory", e);
+    }
+  }
+
+  public static boolean isDifferenceGreaterThan(long startTimeMillis, long endTimeMillis, long durationMillis) {
+    return (endTimeMillis - startTimeMillis) > durationMillis;
   }
 }

@@ -1,13 +1,45 @@
 {
-  "gateway": {
-    "gateway_id": "GAT-123"
+  "externals": {
+    "dbo": {
+      "ext_id": "0060917f-8c21-47c4-b011-52521085fdc3",
+      "label": "VAV CO 1-2-37",
+      "type": "HVAC/VAV_SD_DSP"
+    },
+    "ifc": {
+      "etag": "98bac980",
+      "ext_id": "a87a9b4b-e9e5-424b-9a4e-22378987dddd",
+      "type": "IfcDoor"
+    },
+    "json_ld": {
+      "ext_id": "https://dbpedia.org/page/John_Lennon",
+      "type": "person"
+    }
   },
-  "hash": "539a2745",
+  "gateway": {
+    "gateway_id": "GAT-123",
+    "target": {
+      "addr": "modbus_rtu_1/2",
+      "family": "modbus"
+    }
+  },
   "pointset": {
     "exclude_points_from_config": true,
     "points": {
+      "fan_status": {
+        "ref": "1/101?type=BOOLEAN",
+        "url": "modbus://modbus_rtu_1/2/1/101?type=BOOLEAN"
+      },
+      "filter_differential_pressure": {
+        "ref": "4/30005?type=UINT32&worder=LWF&scale=0.01",
+        "units": "Pascals",
+        "url": "modbus://modbus_rtu_1/2/4/30005?type=UINT32&worder=LWF&scale=0.01"
+      },
       "split_threshold": {
         "units": "Imperial-gallons-per-minute"
+      },
+      "test_offset_point": {
+        "ref": "3/40001?type=INT16&scale=0.1&offset=100.5",
+        "url": "modbus://modbus_rtu_1/2/3/40001?type=INT16&scale=0.1&offset=100.5"
       },
       "triangulating_axis": {
         "units": "Degrees-phase"
@@ -30,5 +62,5 @@
     }
   },
   "timestamp": "2020-05-01T13:39:07Z",
-  "version": "1.5.2"
+  "version": "1.5.7"
 }

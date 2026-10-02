@@ -4,6 +4,9 @@
     "protocol": "mqtt",
     "transport": "ssl",
     "hostname": "localhost",
+    "ca_file": "/etc/mosquitto/certs/ca.crt",
+    "cert_file": "/etc/mosquitto/certs/rsa_private.crt",
+    "key_file": "/etc/mosquitto/certs/rsa_private.pem",
     "auth_provider": {
       "basic": {
         "username": "rocket",
@@ -25,13 +28,24 @@
     "control": {
       "recv_id": "c/control/#"
     },
-    "provision": {
-      "recv_id": "events/discovery",
-      "send_id": "events",
-      "enabled": "yes"
-    },
     "distributor": {
       "enabled": "false"
+    },
+    "uufi": {
+      "recv_id": "/uufi/#",
+      "send_id": "${UDMI_PREFIX}udmi_target"
+    },
+    "uufi_out": {
+      "recv_id": "reflect",
+      "send_id": "/uufi/#"
+    },
+    "uufi_state": {
+      "recv_id": "state/#",
+      "send_id": "/uufi/#"
+    },
+    "uufi_events": {
+      "recv_id": "events/#",
+      "send_id": "/uufi/#"
     }
   },
   "crons": {
@@ -45,7 +59,22 @@
     },
     "implicit": {
       "provider": "implicit",
-      "options": "enabled=${ETCD_CLUSTER}"
+      "options": "enabled=${ETCD_CLUSTER}",
+      "endpoint": {
+        "protocol": "mqtt",
+        "transport": "ssl",
+        "hostname": "localhost",
+        "port": 8883,
+        "ca_file": "/etc/mosquitto/certs/ca.crt",
+        "cert_file": "/etc/mosquitto/certs/rsa_private.crt",
+        "key_file": "/etc/mosquitto/certs/rsa_private.pem",
+        "auth_provider": {
+          "basic": {
+            "username": "scrumptious",
+            "password": "aardvark"
+          }
+        }
+      }
     }
   }
 }

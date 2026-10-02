@@ -1,3 +1,4 @@
+# Execute these serially from outside (e.g. -k <test name>)
 import collections
 import json
 import os
@@ -56,10 +57,10 @@ def test_bacnet_system():
       print("----")
    
     expected_bacnet_ids = set(["1"])
-    seen_bacnet_ids_toplevel = set(m.addr for m in messages if m.family == "bacnet")
+    seen_bacnet_ids_toplevel = set(m.addr for m in messages[1:] if m.family == "bacnet")
     
     assert expected_bacnet_ids == seen_bacnet_ids_toplevel 
-    assert messages[0].refs is None
+    assert len(messages[1].refs) == 0
     # no points
     
 
@@ -101,10 +102,10 @@ def test_bacnet_refs():
       print("----")
    
     expected_bacnet_ids = set(["1"])
-    seen_bacnet_ids_toplevel = set(m.addr for m in messages if m.family == "bacnet")
+    seen_bacnet_ids_toplevel = set(m.addr for m in messages[1:] if m.family == "bacnet")
 
     assert expected_bacnet_ids == seen_bacnet_ids_toplevel 
-    assert len(messages[0].refs) > 0
+    assert len(messages[1].refs) > 0
 
 
 def test_nmap():
@@ -134,13 +135,16 @@ def test_nmap():
             "timestamp": timestamp_now(),
             "discovery": {
                 "families": {
-                    "ether": {"generation": timestamp_now()}
+                    "ether": {"generation": timestamp_now(), "depth": "services", "addrs": ["192.168.12.1"]}
                 }
             },
         })
     )
 
-    time.sleep(30)
+    for _ in range(60):
+        if len(messages) >= 2:
+            break
+        time.sleep(1)
     
     print(len(messages))
     for message in messages:
@@ -149,6 +153,7 @@ def test_nmap():
     
 
     # verify that nmap discovery completed
-    assert messages[0].refs["1256"]["adjunct"]["product"] == "Postfix smtpd"
-
+    #1 because 0 is the publish marker
+    assert len(messages) >= 2, "Discovery message not received"
+    assert messages[1].refs["22"]["adjunct"]["product"] == "OpenSSH"
 

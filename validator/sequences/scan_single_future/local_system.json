@@ -2,9 +2,9 @@
   "min_loglevel" : 100,
   "metrics_rate_sec" : 10,
   "operation" : {
-    "last_start" : "2024-12-17T05:25:34Z"
+    "last_start" : "TIMESTAMP"
   },
   "testing" : {
-    "sequence_name" : "scan_single_future"
+    "sequence_name" : "scan_single_future+vendor"
   }
 }

@@ -6,7 +6,6 @@
       "family": "vendor"
     }
   },
-  "hash": "e3aebc54",
   "localnet": {
     "families": {
       "bacnet": {
@@ -22,8 +21,8 @@
         "shadow_id": "DDC-1"
       },
       "modbus": {
-        "addr": "1",
-        "parent_id": "DDC-1"
+        "parent_id": "DDC-1",
+        "unitid": "1"
       }
     }
   },
@@ -49,7 +48,8 @@
             "ref": "100"
           }
         },
-        "units": "kwH"
+        "units": "kwH",
+        "url": "vendor://xxx/2983"
       }
     }
   },
@@ -62,5 +62,6 @@
     "min_loglevel": 300
   },
   "timestamp": "2020-05-01T13:39:07Z",
-  "version": "1.5.2"
+  "upgraded_from": "1.5.2",
+  "version": "1.5.7"
 }

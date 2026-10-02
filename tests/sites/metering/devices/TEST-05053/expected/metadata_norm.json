@@ -14,7 +14,6 @@
       "family": "iot"
     }
   },
-  "hash": "def0fe94",
   "localnet": {
     "families": {
       "iot": {
@@ -26,10 +25,12 @@
     "points": {
       "HOLDING_REGISTER_153": {
         "ref": "281",
+        "url": "iot://TEST-05053/281",
         "writable": true
       },
       "HOLDING_REGISTER_53": {
         "ref": "181",
+        "url": "iot://TEST-05053/181",
         "writable": true
       }
     }
@@ -60,5 +61,5 @@
   },
   "timestamp": "2025-03-13T14:23:04Z",
   "upgraded_from": "1.5.2",
-  "version": "1.5.3"
+  "version": "1.5.7"
 }

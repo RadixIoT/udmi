@@ -12,6 +12,7 @@ tmp/
 var/
 .gradle/
 .firebase/
+.wincolor
 udmis/functions/node_modules/
 udmis/public/deploy_version.js
 firebase-debug.log
@@ -26,25 +27,39 @@ credentials.json
 /udmis/var/
 /udmis/profile/
 /udmis/.idea/libraries/
+/udmis/bin/etcd_bin/
+/udmis/bin/influx_bin/
 /selfie/build/
 /pubber/build/
 /pubber/out/
 /pubber/pubber/out/
 /pubber/.idea/libraries/
+/services/build/
+/services/out/
+/services/var/
+/services/.idea/libraries/
 /sites/
+/sites
 /attributes.json
 /venv/
 /venv
 /local/
 .pubber.pid
 __pycache__/
+.pytest_cache
 /tests/sites/*/out/
 /tests/sites/*/devices/*/out/
 /tests/sites/basic/extras/
+/tests/sites/*/reflector/
+tests/sites/*/devices/*/*.crt
+tests/sites/*/devices/*/*.csr
+tests/sites/*/devices/*/rsa_private.*
+tests/sites/*/devices/*/rsa_public.*
 /udmi_*.log
 
 .vscode
-.class
+*.class
+*.war
 
 # Terraform authentication and template files.
 cloud/gcp/terraform.tfvars
@@ -52,3 +67,34 @@ cloud/gcp/udmi-sites.tf
 cloud/gcp/main.tf
 cloud/gcp/auth/credentials.json
 cloud/gcp/.terraform*
+
+.python-version
+dist
+gencode/python/dist
+gencode/python/poetry.lock
+venv
+clientlib/python/.idea
+clientlib/python/rsa_private.crt
+clientlib/python/rsa_private.pem
+clientlib/python/.udmi_persistence.json
+clientlib/python/*/rsa_private.crt
+clientlib/python/*/rsa_private.pem
+clientlib/python/*/.udmi_persistence.json
+.udmi_persistence.json
+rsa_private.crt
+rsa_private.pem
+*.pkcs8
+wordlist.dic
+
+# Test output directories
+tests/dbo/basic/test_site_model/
+dbo_merge.log
+
+# Bridgehead local environment file
+bridgehead/.env
+
+# Python egg-info directories
+*.egg-info/
+
+# Bridgehead runtime output
+/bridgehead/out

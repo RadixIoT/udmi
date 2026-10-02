@@ -1,0 +1,177 @@
+#!/bin/bash -e
+
+# Navigate to bridgehead directory
+BRIDGEHEAD_DIR=$(dirname $(realpath $0))/..
+cd "$BRIDGEHEAD_DIR"
+
+UDMI_ROOT=$(realpath "$BRIDGEHEAD_DIR/..")
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    echo "Usage: $(basename $0) [-h|--help]"
+    echo ""
+    echo "Runs end-to-end integration tests for the UDMI Bridgehead architecture."
+    echo ""
+    echo "Options:"
+    echo "  -h, --help              Show this help message and exit."
+    echo ""
+    echo "Test Description:"
+    echo "  1. Clones/prepares default test site model using bin/clone_model."
+    echo "  2. Launches Bridgehead services using bin/start_bridgehead --local."
+    echo "  3. Prepares device registrar and starts Pubber container to send telemetry."
+    echo "  4. Executes discovery sequence and registrar verification."
+    echo ""
+    echo "Expected Result:"
+    echo "  - UDMIS becomes ready within timeout."
+    echo "  - Output matches expected summary count (Device extra: 6, Device status: 5)."
+    echo "  - Registrar processes discovery results for expected devices (AHU-22, SNS-4, GAT-123, UNK-1)."
+    echo "  - Prints 'Test PASSED' with exit code 0."
+    exit 0
+fi
+
+SITE_MODEL_PATH="$UDMI_ROOT/sites/bridgehead_site_model"
+
+clone_site_model() {
+    local target_dir="$1"
+    local model_ver="1.23"
+    local repo_url="https://github.com/faucetsdn/udmi_site_model.git"
+    
+    echo "Cloning test site model into $target_dir..."
+    rm -rf "$target_dir"
+    mkdir -p "$(dirname "$target_dir")"
+    git clone "$repo_url" "$target_dir"
+    
+    pushd "$target_dir" >/dev/null
+    git fetch origin "$model_ver"
+    git checkout -q "$model_ver"
+    git log -n 1
+    popd >/dev/null
+}
+
+# Backup existing .env if it exists
+if [ -f .env ]; then
+    echo "Backing up existing .env"
+    cp .env .env.bak
+fi
+
+# Function to clean up on exit
+cleanup() {
+    echo "----- Cleaning up... -----"
+    mkdir -p "$UDMI_ROOT/out"
+    docker logs udmis > "$UDMI_ROOT/out/bridgehead_udmis_docker.log" 2>&1 || true
+    docker cp udmis:/tmp/udmis.log "$UDMI_ROOT/out/bridgehead_udmis.log" 2>/dev/null || true
+    docker logs validator > "$UDMI_ROOT/out/bridgehead_validator.log" 2>&1 || true
+    docker logs pubber > "$UDMI_ROOT/out/bridgehead_pubber.log" 2>&1 || true
+    
+    if [ -f "$SITE_MODEL_PATH/devices/AHU-1/out/exceptions.txt" ]; then
+        cp "$SITE_MODEL_PATH/devices/AHU-1/out/exceptions.txt" "$UDMI_ROOT/out/bridgehead_ahu1_exceptions.txt" 2>/dev/null || true
+    fi
+    
+    echo "Stopping Pubber container..."
+    docker stop pubber || true
+    
+    echo "Fixing permissions..."
+    docker exec validator chown -R $(id -u):$(id -g) /root/site_model 2>/dev/null || true
+    docker exec udmis chown -R $(id -u):$(id -g) /root/udmi/var/etcd 2>/dev/null || true
+    docker exec mosquitto chown -R $(id -u):$(id -g) /mosquitto/data 2>/dev/null || true
+    
+    echo "Stopping docker-compose services..."
+    "$UDMI_ROOT/bin/stop_bridgehead" || docker compose down
+    rm -rf "$SITE_MODEL_PATH" var/mosquitto/data var/etcd 2>/dev/null || true
+    
+    # Restore .env if backup exists
+    if [ -f .env.bak ]; then
+        echo "Restoring .env"
+        mv .env.bak .env
+    fi
+}
+trap cleanup EXIT
+
+# Clean up existing containers and data
+docker rm -f $(docker ps -aq) 2>/dev/null || true
+docker network rm $(docker network ls -q) 2>/dev/null || true
+"$UDMI_ROOT/bin/stop_bridgehead" -v 2>/dev/null || docker compose down -v --remove-orphans 2>/dev/null || true
+rm -rf var/mosquitto/data var/etcd "$SITE_MODEL_PATH" 2>/dev/null || true
+
+mkdir -p out
+
+echo "Cloning test site model..."
+clone_site_model "$SITE_MODEL_PATH"
+
+mkdir -p "$SITE_MODEL_PATH/out"
+chmod a+rwx "$SITE_MODEL_PATH/out" 2>/dev/null || true
+
+echo "Launching bridgehead services with local workspace build..."
+"$UDMI_ROOT/bin/start_bridgehead" --local "$SITE_MODEL_PATH"
+
+echo "Waiting for services to be healthy..."
+for i in {1..60}; do
+    if docker logs udmis 2>&1 | grep -q "udmis running in the background"; then
+        echo "UDMIS is ready."
+        break
+    fi
+    echo "Waiting for UDMIS... [$i/60]"
+    sleep 5
+done
+
+if ! docker logs udmis 2>&1 | grep -q "udmis running in the background"; then
+    echo "UDMIS failed to become ready in time!"
+    echo "Dumping UDMIS logs:"
+    docker logs udmis || true
+    exit 1
+fi
+
+# Generate valid keys/certs for AHU-1 inside validator container to avoid validation errors
+docker exec validator bin/keygen CERT site_model/devices/AHU-1
+
+echo "Executing discovery sequence..."
+sleep 5
+
+# 1. Registrar setup
+docker exec validator /bin/bash -c "bin/registrar site_model/ //mqtt/mosquitto -x -d"
+echo "Registrar clean completed."
+sleep 15
+docker exec validator /bin/bash -c "bin/registrar site_model/ //mqtt/mosquitto GAT-123"
+echo "Step 1: Registrar initial setup completed."
+
+# 2. Start Pubber container
+docker rm -f pubber 2>/dev/null || true
+docker run -d --rm --name pubber --network udminet -v "$SITE_MODEL_PATH":/root/site_model "${PUBBER_IMAGE:-pubber:latest}" /bin/bash -c "tail -f /dev/null"
+echo "Step 2: Pubber container started."
+
+# 3. Run Pubber inside container (using mosquitto service name)
+docker exec -d pubber /bin/bash -c "bin/pubber site_model/ //mqtt/mosquitto GAT-123 852649"
+echo "Step 3: Pubber command executed inside container."
+
+# Wait a bit for pubber to send messages
+sleep 15
+echo "Wait for Pubber messages completed."
+
+# 4. Run discovery script
+docker exec validator /root/discovery.sh GAT-123
+echo "Step 4: Discovery script executed."
+
+# 5. Run registrar to check results
+echo "Waiting for messages to flush before registrar..."
+sleep 30
+docker exec validator bin/registrar site_model/ //mqtt/mosquitto > out/registrar_output.txt 2>&1 || true
+echo "Step 5: Ran Registrar to check results."
+
+echo "Verifying output..."
+cat out/registrar_output.txt
+
+# Verify expected summary
+failed=0
+grep -q "Device validation: 1" out/registrar_output.txt || failed=1
+grep -q "Device status: 5" out/registrar_output.txt || failed=1
+
+# Also verify specific processed lines as per sample output
+grep -q "Processed AHU-22" out/registrar_output.txt || failed=1
+grep -q "Processed SNS-4" out/registrar_output.txt || failed=1
+grep -q "Processed GAT-123" out/registrar_output.txt || failed=1
+grep -q "Processed UNK-1" out/registrar_output.txt || failed=1
+
+if [ $failed -eq 0 ]; then
+    echo "----- Test PASSED -----"
+else
+    echo "----- Test FAILED -----"
+    exit 1
+fi

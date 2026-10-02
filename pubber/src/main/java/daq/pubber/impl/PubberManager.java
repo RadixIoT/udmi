@@ -50,7 +50,7 @@ public class PubberManager extends ManagerBase {
     return options;
   }
 
-  public PubberConfiguration getConfig() {
+  public PubberConfiguration getPubberConfig() {
     return config;
   }
 
@@ -224,4 +224,12 @@ public class PubberManager extends ManagerBase {
     return isTrue(options.extraDevice);
   }
   // </editor-fold>
+
+  protected boolean isFastWrite() {
+    return isTrue(options.fastWrite);
+  }
+
+  protected boolean isDelayWrite() {
+    return isTrue(options.delayWrite);
+  }
 }

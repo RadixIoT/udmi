@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 import udmi.discovery
 import udmi.discovery.bacnet
-import udmi.discovery.nmap
+import udmi.discovery.ether
 import udmi.discovery.numbers
 import udmi.discovery.passive
 import udmi.publishers.publisher
@@ -47,13 +47,26 @@ class UDMICore:
     # Setup state
     self.state = udmi.schema.state.State()
 
-    try:
-      installed_version_file =  pathlib.Path(__file__).with_name(UDMICore.INSTALLED_VERSION_FILE)
-      with open(installed_version_file, encoding="utf-8") as f:
-        if (installed_version := f.read()) != "":
-          self.state.system.software.version = installed_version
-    except FileNotFoundError:
-      self.state.system.software.version = "1"
+    version_paths = [
+      pathlib.Path(__file__).with_name(UDMICore.INSTALLED_VERSION_FILE),
+      pathlib.Path(__file__).parent.parent / UDMICore.INSTALLED_VERSION_FILE,
+    ]
+
+    installed_version = None
+    for path in version_paths:
+      try:
+        with open(path, encoding="utf-8") as f:
+          if (content := f.read().strip()) != "":
+            installed_version = content
+            break
+      except FileNotFoundError:
+        continue
+
+    if installed_version is not None:
+        self.state.system.software.version = installed_version
+    else:
+        self.state.system.software.version = "unknown"
+
     
     self.state.system.hardware.make = "unknown"
     self.state.system.hardware.model = "unknown"
@@ -75,9 +88,6 @@ class UDMICore:
     # Note, this depends on topic_state being set
     threading.Thread(target=self.state_monitor, args=[], daemon=True).start()
 
-  def process_config(self, config: str):
-    logging.error(f"config callback {config[:24]}")
-
   def add_config_route(self, filter: Callable, destination: Callable):
     self.callbacks[filter] = destination
 
@@ -88,6 +98,7 @@ class UDMICore:
       logging.info("received config %s: \n%s", config["timestamp"], textwrap.indent(config_string, "\t\t\t"))
   
     except json.JSONDecodeError as err:
+      logging.exception(err)
       self.status_from_exception(err)
       return
     for filter, destination in self.callbacks.items():
@@ -148,6 +159,9 @@ class UDMICore:
       )
 
       self.add_config_route(
+          # True so that the complete config is always passed
+          # Otherwise, when a block is removed, it never gets triggered
+          # Should probably be refactored out
           lambda x: True,
           number_discovery,
       )
@@ -161,6 +175,8 @@ class UDMICore:
           self.state,
           self.publish_discovery,
           bacnet_ip=self.config.get("bacnet", {}).get("ip"),
+          bacnet_device_name=self.config.get("mqtt", {}).get("device_id"),
+          bacnet_firmware_version=self.state.system.software.version 
       )
 
       self.add_config_route(
@@ -174,7 +190,9 @@ class UDMICore:
     
     if ipv4:
       passive_discovery = udmi.discovery.passive.PassiveNetworkDiscovery(
-          self.state, self.publish_discovery
+          self.state,
+          self.publish_discovery,
+          subnet_filter = self.config.get("ip", {}).get("subnet_filter")
       )
 
       self.add_config_route(
@@ -187,18 +205,18 @@ class UDMICore:
       self.components["passive_discovery"] = passive_discovery
     
     if ether:
-      nmap_banner_scan = udmi.discovery.nmap.NmapBannerScan(
+      ether_scan = udmi.discovery.ether.EtherDiscovery(
           self.state,
           self.publish_discovery,
-          target_ips=self.config["nmap"]["targets"],
+          ping_concurrency = self.config.get("ether", {}).get("ping_concurrency")
       )
 
       self.add_config_route(
           lambda x: True,
-          nmap_banner_scan,
+          ether_scan,
       )
 
-      self.register_state_hook(nmap_banner_scan.on_state_update_hook)
+      self.register_state_hook(ether_scan.on_state_update_hook)
 
-      self.components["nmap_banner_scan"] = nmap_banner_scan
+      self.components["ether_scan"] = ether_scan
     

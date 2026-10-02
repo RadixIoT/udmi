@@ -1,0 +1,24 @@
+#!/bin/bash -e
+#
+# Mantis: Autonomous UDMI Agent & Diagnostic Management Control Plane
+#
+# Usage:
+#   bin/mantis                     # Interactive Diagnostic Session
+#   bin/mantis "<instruction>"     # Headless universal execution
+#   bin/mantis <bundle.zip>        # Support bundle triage
+#   bin/mantis --mcp               # Run stdio Model Context Protocol (MCP) server
+#
+
+ROOT_DIR=$(realpath $(dirname $0)/..)
+cd "$ROOT_DIR"
+
+# Rebuild venv/ if it is missing or etc/requirements.txt changed. The remaining
+# prerequisites (modules, tmux, model provider) are checked by mantis.cli once
+# --offline / --vertex have been applied.
+bin/ensure_venv >&2  # stdout is the MCP channel under --mcp
+
+source venv/bin/activate
+
+export PYTHONPATH="$ROOT_DIR/common/src/main/python:$ROOT_DIR:${PYTHONPATH:-}"
+
+exec python3 -m mantis.cli "$@"
